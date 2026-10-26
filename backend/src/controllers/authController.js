@@ -1,14 +1,11 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '../config/db.js';
 
 export const login = async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    // 1. Busca o afiliado pelo e-mail
     const affiliate = await prisma.affiliate.findUnique({
       where: { email },
       include: { tier: true }
@@ -18,29 +15,21 @@ export const login = async (req, res) => {
       return res.status(401).json({ error: "Credenciais inválidas." });
     }
 
-    // 2. Verifica o status da aprovação do CNPJ
     if (affiliate.status !== 'APPROVED') {
-      return res.status(403).json({ error: "Acesso pendente de aprovação pela equipe Pulso Tech." });
+      return res.status(403).json({ error: "Acesso pendente de aprovação pela equipe SejaPulso." });
     }
 
-    // 3. Valida a senha hash
     const isValidPassword = await bcrypt.compare(password, affiliate.passwordHash);
     if (!isValidPassword) {
       return res.status(401).json({ error: "Credenciais inválidas." });
     }
 
-    // 4. Gera o Token JWT (Validade de 1 dia)
     const token = jwt.sign(
-      { 
-        id: affiliate.id, 
-        cnpj: affiliate.cnpj, 
-        role: 'AFFILIATE' 
-      },
-      process.env.JWT_SECRET || 'pulso_secret_key',
+      { id: affiliate.id, cnpj: affiliate.cnpj, role: 'AFFILIATE' },
+      process.env.JWT_SECRET || 'sejapulso_secret_jwt_key_2026',
       { expiresIn: '24h' }
     );
 
-    // 5. Retorna os dados do perfil autenticado
     return res.json({
       token,
       user: {

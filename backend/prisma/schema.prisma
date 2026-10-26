@@ -1,0 +1,109 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum AffiliateStatus {
+  PENDING_APPROVAL
+  APPROVED
+  BLOCKED
+}
+
+enum LeadStatus {
+  LEAD_REGISTERED
+  COMMERCIAL_CONTACT
+  PROPOSAL_SENT
+  DEAL_CLOSED
+  DISCARDED
+}
+
+enum CommissionStatus {
+  WAITING_INVOICE
+  INVOICE_SUBMITTED
+  APPROVED
+  PAID
+  REJECTED
+}
+
+model CommissionTier {
+  id             Int         @id @default(autoincrement())
+  name           String
+  minDeals       Int
+  maxDeals       Int?
+  commissionRate Float
+  affiliates     Affiliate[]
+}
+
+model Affiliate {
+  id             String          @id @default(uuid())
+  cnpj           String          @unique
+  companyName    String
+  tradeName      String?
+  responsible    String
+  email          String          @unique
+  passwordHash   String
+  phone          String
+  status         AffiliateStatus @default(PENDING_APPROVAL)
+  pixKey         String?
+  contractSigned Boolean         @default(false)
+  createdAt      DateTime        @default(now())
+
+  tierId         Int?
+  tier           CommissionTier? @relation(fields: [tierId], references: [id])
+  
+  leads          Lead[]
+  deals          Deal[]
+  commissions    Commission[]
+}
+
+model Lead {
+  id           String     @id @default(uuid())
+  companyName  String
+  cnpj         String?
+  contactName  String
+  contactEmail String?
+  contactPhone String
+  servicePlan  String
+  status       LeadStatus @default(LEAD_REGISTERED)
+  claimedAt    DateTime   @default(now())
+  
+  affiliateId  String
+  affiliate    Affiliate  @relation(fields: [affiliateId], references: [id])
+  deal         Deal?
+}
+
+model Deal {
+  id                String      @id @default(uuid())
+  totalAmount       Float
+  downPaymentAmount Float
+  downPaymentPaid   Boolean     @default(false)
+  asaasPaymentId    String?
+  closedAt          DateTime    @default(now())
+
+  leadId            String      @unique
+  lead              Lead        @relation(fields: [leadId], references: [id])
+  
+  affiliateId       String
+  affiliate         Affiliate   @relation(fields: [affiliateId], references: [id])
+  
+  commission        Commission?
+}
+
+model Commission {
+  id              String           @id @default(uuid())
+  appliedRate     Float
+  amount          Float
+  status          CommissionStatus @default(WAITING_INVOICE)
+  invoiceUrl      String?
+  invoiceUploaded DateTime?
+  paidAt          DateTime?
+
+  dealId          String           @unique
+  deal            Deal             @relation(fields: [dealId], references: [id])
+  
+  affiliateId     String
+  affiliate       Affiliate        @relation(fields: [affiliateId], references: [id])
+}
