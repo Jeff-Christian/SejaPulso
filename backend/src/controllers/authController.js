@@ -24,8 +24,13 @@ export const login = async (req, res) => {
       return res.status(401).json({ error: "Credenciais inválidas." });
     }
 
+    // 🚀 DADOS DINÂMICOS NO TOKEN JWT: Usa affiliate.role em vez de string estática
     const token = jwt.sign(
-      { id: affiliate.id, cnpj: affiliate.cnpj, role: 'AFFILIATE' },
+      { 
+        id: affiliate.id, 
+        cnpj: affiliate.cnpj, 
+        role: affiliate.role // 👈 DINÂMICO: Recebe 'ADMIN' ou 'AFFILIATE' do PostgreSQL
+      },
       process.env.JWT_SECRET || 'sejapulso_secret_jwt_key_2026',
       { expiresIn: '24h' }
     );
@@ -35,11 +40,10 @@ export const login = async (req, res) => {
       user: {
         id: affiliate.id,
         companyName: affiliate.companyName,
-        cnpj: affiliate.cnpj,
         email: affiliate.email,
-        tierName: affiliate.tier?.name || 'Tier 1 — Bronze',
-        commissionRate: `${affiliate.tier?.commissionRate || 10}%`,
-        contractSigned: affiliate.contractSigned
+        cnpj: affiliate.cnpj,
+        role: affiliate.role,      // 'ADMIN' ou 'AFFILIATE'
+        status: affiliate.status   // 'APPROVED' ou 'PENDING_APPROVAL'
       }
     });
 

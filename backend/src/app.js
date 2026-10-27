@@ -2,25 +2,26 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/authRoutes.js';
-import leadRoutes from './routes/leadRoutes.js';
-import commissionRoutes from './routes/commissionRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 
 dotenv.config();
 
 const app = express();
 
-// Middlewares
-app.use(cors());
+// Configuração do CORS para permitir requisições do Frontend
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  credentials: true
+}));
+
 app.use(express.json());
 
-// Rotas da API
+// Registro das rotas
 app.use('/api/auth', authRoutes);
-app.use('/api/leads', leadRoutes);
-app.use('/api/commissions', commissionRoutes);
+app.use('/api/admin', adminRoutes);
 
-// Rota de Healthcheck
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', service: 'SejaPulso API', timestamp: new Date() });
+  res.json({ status: 'OK', service: 'SejaPulso API' });
 });
 
 const PORT = process.env.PORT || 3000;

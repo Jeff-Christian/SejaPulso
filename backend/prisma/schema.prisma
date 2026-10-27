@@ -6,6 +6,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum Role {
+  ADMIN
+  AFFILIATE
+}
+
 enum AffiliateStatus {
   PENDING_APPROVAL
   APPROVED
@@ -39,6 +44,7 @@ model CommissionTier {
 
 model Affiliate {
   id             String          @id @default(uuid())
+  role           Role            @default(AFFILIATE)
   cnpj           String          @unique
   companyName    String
   tradeName      String?
