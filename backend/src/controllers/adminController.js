@@ -3,17 +3,21 @@ import bcrypt from 'bcrypt';
 
 // 1. Criar consultor diretamente via admin
 export const createAffiliateDirectly = async (req, res) => {
-  const { companyName, tradeName, cnpj, responsible, email, phone, password, role, tierId } = req.body;
+  const { companyName, tradeName, cnpj, responsible, email, phone, password, role, tierId, pixKey } = req.body;
 
   try {
+    const formattedEmail = buildCorporativeEmail(email);
+
+    // Valida se o CNPJ ou o e-mail já estão cadastrados
     const existing = await prisma.affiliate.findFirst({
-      where: { OR: [{ email }, { cnpj }] }
+      where: { OR: [{ email: formattedEmail }, { cnpj }] }
     });
 
     if (existing) {
-      return res.status(400).json({ error: 'CNPJ ou E-mail já cadastrado na plataforma.' });
+      return res.status(400).json({ error: 'CNPJ ou E-mail corporativo já cadastrado na plataforma.' });
     }
 
+    // 🔑 Criptografa a senha informada no formulário (ou usa 123456 como fallback)
     const passwordHash = await bcrypt.hash(password || '123456', 10);
 
     const newAffiliate = await prisma.affiliate.create({
@@ -22,27 +26,26 @@ export const createAffiliateDirectly = async (req, res) => {
         tradeName: tradeName || companyName,
         cnpj,
         responsible,
-        email,
+        email: formattedEmail,
         phone,
         passwordHash,
+        pixKey: pixKey || cnpj,
         role: role || 'AFFILIATE',
         status: 'APPROVED',
         contractSigned: false,
-        tierId: tierId ? parseInt(tierId) : 1
+        tierId: tierId ? parseInt(tierId, 10) : 1
       }
     });
 
     return res.status(201).json({
-      message: 'Consultor cadastrado com sucesso!',
+      message: 'Consultor criado e aprovado com sucesso!',
       affiliate: newAffiliate
     });
-
   } catch (error) {
-    console.error('Erro ao criar consultor via Admin:', error);
-    return res.status(500).json({ error: 'Erro interno ao cadastrar o consultor.' });
+    console.error('❌ [Backend Error] Falha ao criar consultor:', error);
+    return res.status(500).json({ error: 'Erro interno ao criar consultor.' });
   }
 };
-
 
 // 2. Listar apenas consultores ativos (APPROVED)
 export const getActiveAffiliates = async (req, res) => {
@@ -108,30 +111,53 @@ export const getAffiliateDetails = async (req, res) => {
   }
 };
 
-// 3. Atualizar dados do consultor
+// Função utilitária do e-mail corporativo
+export const buildCorporativeEmail = (emailInput) => {
+  if (!emailInput) return '';
+  const username = emailInput.split('@')[0].trim().toLowerCase();
+  return `${username}@pulsotech.com.br`;
+};
+
 export const updateAffiliateDetails = async (req, res) => {
   const { id } = req.params;
   const { companyName, tradeName, cnpj, responsible, email, phone, pixKey, tierId, status } = req.body;
 
   try {
-    const updated = await prisma.affiliate.update({
+    // 1. Formata o e-mail garantindo a extensão @pulsotech.com.br
+    const formattedEmail = buildCorporativeEmail(email);
+
+    // 2. Valida e converte o tierId com fallback seguro
+    const parsedTierId = tierId ? parseInt(tierId, 10) : undefined;
+
+    // 3. Atualiza os dados no PostgreSQL via Prisma
+    const updatedAffiliate = await prisma.affiliate.update({
       where: { id },
       data: {
         companyName,
         tradeName,
         cnpj,
         responsible,
-        email,
+        email: formattedEmail,
         phone,
-        pixKey, // 👈 Atualiza a Chave Pix cadastrada pelo Admin
-        tierId: tierId ? parseInt(tierId) : undefined,
+        pixKey,
+        ...(parsedTierId && !isNaN(parsedTierId) ? { tierId: parsedTierId } : {}),
         status
       }
     });
 
-    return res.json({ message: 'Dados do consultor atualizados com sucesso!', affiliate: updated });
+    return res.json({
+      message: 'Dados do consultor atualizados com sucesso!',
+      affiliate: updatedAffiliate
+    });
   } catch (error) {
-    console.error('Erro ao atualizar consultor:', error);
+    // Imprime o erro detalhado do Prisma/Node no terminal do backend para diagnosticar
+    console.error('❌ [Backend Error] Falha ao atualizar consultor:', error);
+
+    // Trata erro de duplicidade de chave única (CNPJ ou E-mail) do Prisma
+    if (error.code === 'P2002') {
+      return res.status(400).json({ error: 'CNPJ ou E-mail corporativo já cadastrado para outro consultor.' });
+    }
+
     return res.status(500).json({ error: 'Erro ao atualizar dados do consultor.' });
   }
 };
