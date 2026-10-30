@@ -19,6 +19,7 @@
     "prisma": "^7.10.1"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
     "pg": "^8.23.1"

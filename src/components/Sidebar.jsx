@@ -13,7 +13,7 @@ import {
   UserPlus
 } from 'lucide-react';
 
-// Import imagens
+// Import imagem do Logo
 import LogoPulso from '../assets/SejaPulsoLogo.png'; 
 
 export const Sidebar = ({ activeTab, onSelectTab, onOpenAddModal }) => {
@@ -24,6 +24,7 @@ export const Sidebar = ({ activeTab, onSelectTab, onOpenAddModal }) => {
   // Configuração dos itens de menu para o Perfil CONSULTOR / AFILIADO
   const affiliateMenuItems = [
     { id: 'overview', label: 'Visão Geral & KPIs', icon: PieChart },
+    { id: 'my-leads', label: 'Meus Agendamentos', icon: Building2 }, // 👈 Adicionado a aba da Carteira de Leads
     { id: 'leads', label: 'Verificação & Pool B2B', icon: Building2 },
     { id: 'sales', label: 'Vendas & Notas Fiscais', icon: Receipt },
     { id: 'pricing', label: 'Cardápio de Serviços', icon: Layers },

@@ -24,15 +24,15 @@ export const login = async (req, res) => {
       return res.status(401).json({ error: "Credenciais inválidas." });
     }
 
-    // 🚀 DADOS DINÂMICOS NO TOKEN JWT: Usa affiliate.role em vez de string estática
+    // ⏱️ ALTERAÇÃO AQUI: Altera a validade do Token de '24h' para '2h' (ou '3h')
     const token = jwt.sign(
       { 
         id: affiliate.id, 
         cnpj: affiliate.cnpj, 
-        role: affiliate.role // 👈 DINÂMICO: Recebe 'ADMIN' ou 'AFFILIATE' do PostgreSQL
+        role: affiliate.role 
       },
       process.env.JWT_SECRET || 'sejapulso_secret_jwt_key_2026',
-      { expiresIn: '24h' }
+      { expiresIn: '2h' } // 👈 Expira após 2 horas de inatividade/uso
     );
 
     return res.json({
@@ -42,8 +42,8 @@ export const login = async (req, res) => {
         companyName: affiliate.companyName,
         email: affiliate.email,
         cnpj: affiliate.cnpj,
-        role: affiliate.role,      // 'ADMIN' ou 'AFFILIATE'
-        status: affiliate.status   // 'APPROVED' ou 'PENDING_APPROVAL'
+        role: affiliate.role,
+        status: affiliate.status
       }
     });
 

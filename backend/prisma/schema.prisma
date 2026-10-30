@@ -68,11 +68,11 @@ model Affiliate {
 model Lead {
   id           String     @id @default(uuid())
   companyName  String
-  cnpj         String?
-  contactName  String
-  contactEmail String?
-  contactPhone String
-  servicePlan  String
+  cnpj         String?    @unique
+  contactName  String?    
+  contactEmail String?    
+  contactPhone String?    
+  servicePlan  String?    
   status       LeadStatus @default(LEAD_REGISTERED)
   claimedAt    DateTime   @default(now())
   

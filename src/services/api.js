@@ -19,21 +19,22 @@ export const apiRequest = async (endpoint, method = 'GET', data = null, token = 
     config.body = JSON.stringify(data);
   }
 
-  console.log(`📡 [API Request] Disparando ${method} para: ${API_BASE_URL}${endpoint}`);
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+  const responseData = await response.json();
 
-  try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-    const responseData = await response.json();
-
-    console.log(`📥 [API Response] Status ${response.status}:`, responseData);
-
-    if (!response.ok) {
-      throw new Error(responseData.error || `Erro na requisição (${response.status})`);
+  if (!response.ok) {
+    // 🚪 Se o token expirar (401 ou 403), limpa a sessão e força o re-login
+    if (response.status === 401 || response.status === 403) {
+      if (responseData.error && responseData.error.toLowerCase().includes('expirado')) {
+        localStorage.clear();
+        alert('Sua sessão expirou por tempo de inatividade. Por favor, faça login novamente.');
+        window.location.href = '/login';
+        return;
+      }
     }
 
-    return responseData;
-  } catch (error) {
-    console.error(`❌ [API Error] Falha na conexão com ${endpoint}:`, error.message);
-    throw error;
+    throw new Error(responseData.error || `Erro na requisição (${response.status})`);
   }
+
+  return responseData;
 };

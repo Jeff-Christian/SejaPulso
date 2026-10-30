@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# chaves de API
+.env
+.env.local
+*.env

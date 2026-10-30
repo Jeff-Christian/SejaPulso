@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/authRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import leadRoutes from './routes/leadRoutes.js';
 
 dotenv.config();
 
@@ -19,6 +20,9 @@ app.use(express.json());
 // Registro das rotas
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+
+// Registro da rota no Express
+app.use('/api/leads', leadRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', service: 'SejaPulso API' });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -12,12 +12,20 @@ import {
 } from 'lucide-react';
 import { Sidebar } from '../components/Sidebar';
 import { HeaderAffiliate } from '../components/HeaderAffiliate';
+import { LeadCard } from '../components/LeadCard';
+import { MyLeadsTab } from '../components/MyLeadsTab';
+import { apiRequest } from '../services/api';
 
 export const DashboardPage = () => {
   const [activeTab, setActiveTab] = useState('overview');
 
-  // 1. Obtém o usuário do localStorage gravado na autenticação
-  const [user, setUser] = useState(() => {
+  // Estados para busca de CNPJ e exibição do LeadCard
+  const [searchCnpj, setSearchCnpj] = useState('');
+  const [leadResult, setLeadResult] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+
+  const [user] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('user') || '{}');
     } catch {
@@ -25,17 +33,37 @@ export const DashboardPage = () => {
     }
   });
 
-  // 2. Estado para comissões (inicia como array vazio para evitar erros de renderização)
-  const [commissions, setCommissions] = useState(user.commissions || []);
+  const [commissions] = useState(user.commissions || []);
 
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      alert(`Nota Fiscal "${file.name}" recebida! O setor financeiro validará o documento.`);
+  const handleSearchCnpj = async (e) => {
+  e.preventDefault();
+  if (!searchCnpj.trim()) return;
+
+  // 🔴 REMOVE PONTOS, BARRAS E TRAÇOS ANTES DO DISPARO
+  const cleanCnpj = searchCnpj.replace(/\D/g, '');
+
+    if (cleanCnpj.length !== 14) {
+      setSearchError('Por favor, digite um CNPJ válido com 14 dígitos.');
+      return;
+    }
+
+    setSearching(true);
+    setSearchError('');
+    setLeadResult(null);
+
+    try {
+      const token = localStorage.getItem('token');
+      
+      // 🟢 Dispara a requisição apenas com números na URL
+      const data = await apiRequest(`/leads/consult/${cleanCnpj}`, 'GET', null, token);
+      setLeadResult(data);
+    } catch (err) {
+      setSearchError(err.message || 'Erro ao consultar CNPJ na Receita Federal.');
+    } finally {
+      setSearching(false);
     }
   };
 
-  // Mapeamento dinâmico de dados do consultor com fallbacks seguros
   const affiliateData = {
     tierName: user.tier?.name || 'Tier 1 — Bronze',
     commissionRate: user.tier?.commissionRate ? `${user.tier.commissionRate}%` : '10%',
@@ -48,22 +76,21 @@ export const DashboardPage = () => {
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-[#0B132B] text-white font-sans selection:bg-[#00F5D4] selection:text-black">
       
-      {/* 1. Componente de Barra Lateral (Sidebar) */}
+      {/* 1. Sidebar */}
       <Sidebar activeTab={activeTab} onSelectTab={setActiveTab} />
 
-      {/* 2. Área de Conteúdo Principal */}
+      {/* 2. Conteúdo Principal */}
       <div className="flex-1 flex flex-col min-w-0">
         
-        {/* Header Superior com dados reais do usuário */}
+        {/* Header Superior */}
         <HeaderAffiliate />
 
-        {/* Conteúdo Dinâmico com base na Aba Selecionada */}
+        {/* Conteúdo Dinâmico */}
         <main className="p-6 space-y-8 flex-1 overflow-y-auto">
 
           {/* ================= TAB 1: VISÃO GERAL & KPIS ================= */}
           {activeTab === 'overview' && (
             <div className="space-y-8">
-              {/* Card de Faixa e Progressão de Tier */}
               <div className="bg-[#111D3A] border border-[#1E2D50] rounded-2xl p-6 md:p-8 space-y-6 shadow-xl">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
@@ -84,7 +111,6 @@ export const DashboardPage = () => {
                   </div>
                 </div>
 
-                {/* Barra de Progresso Dinâmica */}
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs font-mono">
                     <span className="text-gray-400">Vendas do Mês: <strong className="text-white">{affiliateData.dealsCount} Contratos</strong></span>
@@ -101,7 +127,6 @@ export const DashboardPage = () => {
                 </div>
               </div>
 
-              {/* Cards de Saldos e Métricas */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-[#111D3A] border border-[#1E2D50] p-6 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between text-gray-400">
@@ -141,23 +166,56 @@ export const DashboardPage = () => {
                 <p className="text-xs text-gray-400 mt-1">Consulte a paternidade ou reserve CNPJs ativas da base central sem conflito de canal.</p>
               </div>
 
-              <div className="bg-[#0B132B] border border-[#1E2D50] p-4 rounded-xl flex flex-col md:flex-row gap-3">
+              {/* Form de Busca por CNPJ */}
+              <form onSubmit={handleSearchCnpj} className="bg-[#0B132B] border border-[#1E2D50] p-4 rounded-xl flex flex-col md:flex-row gap-3">
                 <div className="flex-1 relative">
                   <Search className="w-4 h-4 absolute left-3.5 top-3 text-gray-500" />
                   <input 
                     type="text" 
-                    placeholder="Digite a Razão Social ou CNPJ para consultar..." 
+                    value={searchCnpj}
+                    onChange={(e) => setSearchCnpj(e.target.value)}
+                    placeholder="Digite o CNPJ da empresa para consultar..." 
                     className="w-full bg-[#111D3A] border border-[#1E2D50] rounded-xl pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-[#00F5D4]"
                   />
                 </div>
-                <button className="bg-[#00F5D4] text-[#0B132B] px-5 py-2 rounded-xl text-xs font-bold hover:opacity-90 transition shrink-0">
-                  Consultar Paternidade
+                <button 
+                  type="submit"
+                  disabled={searching}
+                  className="bg-[#00F5D4] text-[#0B132B] px-5 py-2 rounded-xl text-xs font-bold hover:opacity-90 transition shrink-0 disabled:opacity-50"
+                >
+                  {searching ? 'Consultando...' : 'Consultar Paternidade'}
                 </button>
-              </div>
+              </form>
+
+              {/* Exibição de Erros de Busca */}
+              {searchError && (
+                <div className="p-4 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl text-xs">
+                  {searchError}
+                </div>
+              )}
+
+              {/* RENDERIZAÇÃO DO COMPONENTE LEAD CARD */}
+              {leadResult && (
+                <div className="pt-2">
+                  <LeadCard 
+                    leadData={leadResult} 
+                    onLeadClaimed={() => {
+                      // Opcional: Recarregar ou limpar estado após a reserva
+                      setLeadResult(null);
+                      setSearchCnpj('');
+                    }} 
+                  />
+                </div>
+              )}
             </div>
           )}
 
-          {/* ================= TAB 3: VENDAS & NOTAS FISCAIS ================= */}
+          {/* ================= TAB 3: MEUS LEADS RESERVADOS ================= */}
+            {activeTab === 'my-leads' && (
+              <MyLeadsTab />
+          )}
+
+          {/* ================= TAB 4: VENDAS & NOTAS FISCAIS ================= */}
           {activeTab === 'sales' && (
             <div className="bg-[#111D3A] border border-[#1E2D50] rounded-2xl p-6 space-y-6">
               <div>
@@ -210,7 +268,7 @@ export const DashboardPage = () => {
                               <label className="inline-flex items-center space-x-1.5 bg-[#00F5D4] hover:bg-[#00d6b9] text-[#0B132B] font-bold px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer">
                                 <Upload className="w-3.5 h-3.5" />
                                 <span>Anexar NF</span>
-                                <input type="file" className="hidden" onChange={handleFileUpload} />
+                                <input type="file" className="hidden" />
                               </label>
                             ) : (
                               <span className="text-[11px] text-gray-500 font-mono">Concluído</span>
