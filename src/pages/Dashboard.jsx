@@ -5,10 +5,10 @@ import {
   Award, 
   Upload, 
   CheckCircle, 
-  Clock,
-  Search,
-  FileText,
-  Download
+  Clock, 
+  Search, 
+  FileText, 
+  Download 
 } from 'lucide-react';
 import { Sidebar } from '../components/Sidebar';
 import { HeaderAffiliate } from '../components/HeaderAffiliate';
@@ -19,12 +19,13 @@ import { apiRequest } from '../services/api';
 export const DashboardPage = () => {
   const [activeTab, setActiveTab] = useState('overview');
 
-  // Estados para busca de CNPJ e exibição do LeadCard
+  // Estados para busca de CNPJ no Pool
   const [searchCnpj, setSearchCnpj] = useState('');
   const [leadResult, setLeadResult] = useState(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
 
+  // Lê as informações reais do usuário logado no localStorage
   const [user] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('user') || '{}');
@@ -36,11 +37,10 @@ export const DashboardPage = () => {
   const [commissions] = useState(user.commissions || []);
 
   const handleSearchCnpj = async (e) => {
-  e.preventDefault();
-  if (!searchCnpj.trim()) return;
+    e.preventDefault();
+    if (!searchCnpj.trim()) return;
 
-  // 🔴 REMOVE PONTOS, BARRAS E TRAÇOS ANTES DO DISPARO
-  const cleanCnpj = searchCnpj.replace(/\D/g, '');
+    const cleanCnpj = searchCnpj.replace(/\D/g, '');
 
     if (cleanCnpj.length !== 14) {
       setSearchError('Por favor, digite um CNPJ válido com 14 dígitos.');
@@ -53,8 +53,6 @@ export const DashboardPage = () => {
 
     try {
       const token = localStorage.getItem('token');
-      
-      // 🟢 Dispara a requisição apenas com números na URL
       const data = await apiRequest(`/leads/consult/${cleanCnpj}`, 'GET', null, token);
       setLeadResult(data);
     } catch (err) {
@@ -73,24 +71,29 @@ export const DashboardPage = () => {
     balancePending: user.financialSummary?.balancePending || 'R$ 0,00'
   };
 
+  const handleFileUpload = () => {
+    alert('Nota Fiscal recebida! O setor financeiro validará o documento.');
+  };
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-[#0B132B] text-white font-sans selection:bg-[#00F5D4] selection:text-black">
       
-      {/* 1. Sidebar */}
+      {/* 1. Barra Lateral */}
       <Sidebar activeTab={activeTab} onSelectTab={setActiveTab} />
 
-      {/* 2. Conteúdo Principal */}
+      {/* 2. Área de Conteúdo Principal */}
       <div className="flex-1 flex flex-col min-w-0">
         
-        {/* Header Superior */}
+        {/* Cabeçalho Superior */}
         <HeaderAffiliate />
 
-        {/* Conteúdo Dinâmico */}
+        {/* Conteúdo Dinâmico por Aba */}
         <main className="p-6 space-y-8 flex-1 overflow-y-auto">
 
           {/* ================= TAB 1: VISÃO GERAL & KPIS ================= */}
           {activeTab === 'overview' && (
             <div className="space-y-8">
+              {/* Progresso de Tier */}
               <div className="bg-[#111D3A] border border-[#1E2D50] rounded-2xl p-6 md:p-8 space-y-6 shadow-xl">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
@@ -111,6 +114,7 @@ export const DashboardPage = () => {
                   </div>
                 </div>
 
+                {/* Barra de Progresso */}
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs font-mono">
                     <span className="text-gray-400">Vendas do Mês: <strong className="text-white">{affiliateData.dealsCount} Contratos</strong></span>
@@ -127,6 +131,7 @@ export const DashboardPage = () => {
                 </div>
               </div>
 
+              {/* Cards de Saldos */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-[#111D3A] border border-[#1E2D50] p-6 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between text-gray-400">
@@ -158,7 +163,12 @@ export const DashboardPage = () => {
             </div>
           )}
 
-          {/* ================= TAB 2: POOL DE LEADS B2B ================= */}
+          {/* ================= TAB 2: MEUS AGENDAMENTOS (MY-LEADS) ================= */}
+          {activeTab === 'my-leads' && (
+            <MyLeadsTab />
+          )}
+
+          {/* ================= TAB 3: POOL DE LEADS B2B ================= */}
           {activeTab === 'leads' && (
             <div className="bg-[#111D3A] border border-[#1E2D50] rounded-2xl p-6 space-y-6">
               <div>
@@ -166,7 +176,6 @@ export const DashboardPage = () => {
                 <p className="text-xs text-gray-400 mt-1">Consulte a paternidade ou reserve CNPJs ativas da base central sem conflito de canal.</p>
               </div>
 
-              {/* Form de Busca por CNPJ */}
               <form onSubmit={handleSearchCnpj} className="bg-[#0B132B] border border-[#1E2D50] p-4 rounded-xl flex flex-col md:flex-row gap-3">
                 <div className="flex-1 relative">
                   <Search className="w-4 h-4 absolute left-3.5 top-3 text-gray-500" />
@@ -187,20 +196,17 @@ export const DashboardPage = () => {
                 </button>
               </form>
 
-              {/* Exibição de Erros de Busca */}
               {searchError && (
                 <div className="p-4 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl text-xs">
                   {searchError}
                 </div>
               )}
 
-              {/* RENDERIZAÇÃO DO COMPONENTE LEAD CARD */}
               {leadResult && (
                 <div className="pt-2">
                   <LeadCard 
                     leadData={leadResult} 
                     onLeadClaimed={() => {
-                      // Opcional: Recarregar ou limpar estado após a reserva
                       setLeadResult(null);
                       setSearchCnpj('');
                     }} 
@@ -208,11 +214,6 @@ export const DashboardPage = () => {
                 </div>
               )}
             </div>
-          )}
-
-          {/* ================= TAB 3: MEUS LEADS RESERVADOS ================= */}
-            {activeTab === 'my-leads' && (
-              <MyLeadsTab />
           )}
 
           {/* ================= TAB 4: VENDAS & NOTAS FISCAIS ================= */}
@@ -268,7 +269,7 @@ export const DashboardPage = () => {
                               <label className="inline-flex items-center space-x-1.5 bg-[#00F5D4] hover:bg-[#00d6b9] text-[#0B132B] font-bold px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer">
                                 <Upload className="w-3.5 h-3.5" />
                                 <span>Anexar NF</span>
-                                <input type="file" className="hidden" />
+                                <input type="file" className="hidden" onChange={handleFileUpload} />
                               </label>
                             ) : (
                               <span className="text-[11px] text-gray-500 font-mono">Concluído</span>
@@ -283,7 +284,7 @@ export const DashboardPage = () => {
             </div>
           )}
 
-          {/* ================= TAB 4: CARDÁPIO DE SERVIÇOS ================= */}
+          {/* ================= TAB 5: CARDÁPIO DE SERVIÇOS ================= */}
           {activeTab === 'pricing' && (
             <div className="bg-[#111D3A] border border-[#1E2D50] rounded-2xl p-6 space-y-6">
               <h2 className="text-xl font-bold text-white">Cardápio de Serviços & Pacotes Padronizados</h2>
@@ -302,7 +303,7 @@ export const DashboardPage = () => {
             </div>
           )}
 
-          {/* ================= TAB 5: MATERIAIS DE APOIO ================= */}
+          {/* ================= TAB 6: MATERIAIS DE APOIO ================= */}
           {activeTab === 'materials' && (
             <div className="bg-[#111D3A] border border-[#1E2D50] rounded-2xl p-6 space-y-6">
               <h2 className="text-xl font-bold text-white">Materiais de Apoio & Kit de Vendas</h2>
