@@ -1,315 +1,487 @@
-import fetch from 'node-fetch';
-import { prisma } from '../config/db.js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import fetch from "node-fetch";
+import { prisma } from "../config/db.js";
+import OpenAI from "openai";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+import { generateSmartPitch } from "../services/pitchService.js";
 
-// 1. Mapeamento Dinâmico de CNAE para Pacotes Reais do Cardápio Oficial
-const CNAE_PACKAGE_MAP = {
-  // Saúde, Estética, Odontologia e Clínicas -> Landing Page Start
-  '86': { 
-    package: 'Landing Page Start (R$ 1.500,00)', 
-    focus: 'agendamento rápido de consultas e tráfego pago' 
-  },
-  // Comércio Varejista, Minimercados, Mercearias e Lojas de Bairro -> Catálogo Digital
-  '47': { 
-    package: 'Catálogo Digital Interativo (R$ 1.800,00)', 
-    focus: 'exibir produtos/ofertas com pedido rápido no WhatsApp' 
-  },
-  // Advogados, Contadores, Consultorias e Serviços B2B -> Site Standard
-  '69': { 
-    package: 'Site Institucional Standard (R$ 2.500,00)', 
-    focus: 'transmitir autoridade e posicionamento profissional' 
-  },
-  // Reparos, Manutenção, Oficinas e Serviços Locais -> Landing Page Start
-  '95': { 
-    package: 'Landing Page Start (R$ 1.500,00)', 
-    focus: 'orçamentos ágeis via foto/mensagem no WhatsApp' 
-  },
-  // E-commerce, Distribuidoras e Comércio Atacadista -> Loja Virtual Pro
-  '46': { 
-    package: 'Loja Virtual Pro (R$ 5.500,00)', 
-    focus: 'catálogo estruturado e vendas em escala' 
-  }
-};
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || "",
+});
 
-// 2. Função Geradora de Inteligência com Gemini AI
-export const generateSmartPitch = async (companyData) => {
-  try {
-    if (!process.env.GEMINI_API_KEY) {
-      throw new Error('GEMINI_API_KEY não configurada no arquivo .env');
-    }
-
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-    // Extrai o grupo principal do CNAE (primeiros 2 dígitos)
-    const cnaeCode = String(companyData.cnaeCode || '').replace(/\D/g, '');
-    const cnaeGroup = cnaeCode.substring(0, 2);
-
-    // Mapeia o pacote dinâmico ou utiliza o fallback de R$ 2.500 para serviços gerais
-    const mappedInfo = CNAE_PACKAGE_MAP[cnaeGroup] || {
-      package: 'Site Institucional Standard (R$ 2.500,00)',
-      focus: 'presença digital e validação de marca com clientes'
-    };
-
-    // Limpeza rigorosa do Nome Comercial (remove números, LTDA, MEI, ME, EPP, S/A)
-    const cleanCompanyName = (companyData.tradeName || companyData.companyName)
-      .replace(/\d+/g, '')
-      .replace(/LTDA|MEI|ME|EPP|S\/A/gi, '')
-      .replace(/[\.\-\/]/g, '')
-      .trim();
-
-    const prompt = `
-      Você é um Diretor Comercial B2B pragmático, experiente e muito focado em conversão na SejaPulso / Pulso Tech.
-      Forneça um direcionamento direto e um script de WhatsApp humanizado para um consultor abordar este cliente:
-
-      - Nome da Empresa: ${cleanCompanyName}
-      - Atividade do Cliente (CNAE): ${companyData.cnaeDescription}
-      - Localização: ${companyData.location}
-      - Pacote do Cardápio Recomendado: ${mappedInfo.package}
-      - Foco Comercial da Solução: ${mappedInfo.focus}
-
-      REGRAS RÍGIDAS E OBRIGATÓRIAS:
-      1. PROIBIDO usar expressões engessadas ou repetitivas como "Vi o trabalho de vocês de... achei muito bacana" ou "Analisando o canal digital do setor...".
-      2. PROIBIDO copiar a descrição formal e longa do CNAE. Traduza a atividade para o termo comum usado no dia a dia do negócio (ex: em vez de "Comércio varejista de mercadorias em geral...", use "minimercado/mercearia").
-      3. A Dica do Consultor (whyOffer) deve ser uma orientação pragmática de negócios em 1 ou 2 frases: "Olha, oferta X para ele porque empresas desse ramo perdem dinheiro quando Y...".
-      4. O Script do WhatsApp (pitchScript) deve ser uma mensagem curta de 2 a 3 frases, simpática, humanizada e natural, pronta para envio direto pelo consultor.
-
-      Retorne EXCLUSIVAMENTE um objeto JSON válido no seguinte formato:
-      {
-        "suggestedPackage": "${mappedInfo.package}",
-        "whyOffer": "Sua dica pragmática de vendas para o consultor",
-        "pitchScript": "Sua mensagem curta e natural para WhatsApp"
-      }
-    `;
-
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
-    const cleanedJson = responseText.replace(/```json|```/g, '').trim();
-    return JSON.parse(cleanedJson);
-
-  } catch (error) {
-    console.error('⚠️ [IA Pitch Warning] Usando fallback humanizado:', error.message);
-
-    const cnaeCode = String(companyData.cnaeCode || '').replace(/\D/g, '');
-    const cnaeGroup = cnaeCode.substring(0, 2);
-    const mappedInfo = CNAE_PACKAGE_MAP[cnaeGroup] || {
-      package: 'Site Institucional Standard (R$ 2.500,00)',
-      focus: 'presença digital profissional'
-    };
-
-    const cleanName = (companyData.tradeName || companyData.companyName)
-      .replace(/\d+/g, '')
-      .replace(/LTDA|MEI|ME/gi, '')
-      .trim();
-
-    return {
-      suggestedPackage: mappedInfo.package,
-      whyOffer: `Para empresas atuando em ${companyData.cnaeDescription}, o maior ganho é facilitar o acesso rápido do cliente às informações e orçamentos direto pelo WhatsApp.`,
-      pitchScript: `Olá, pessoal da ${cleanName}! Acompanho o trabalho de vocês aí em ${companyData.location}. Vocês já têm uma página rápida onde o cliente consegue ver os serviços e chamar direto no WhatsApp? Criamos modelos focados nisso para empresas da região. Posso te enviar um exemplo sem compromisso?`
-    };
-  }
-};
-
-// 3. Controller de Consulta de CNPJ
-export const consultCnpjAndCheckOwnership = async (req, res) => {
-  const { cnpj } = req.params;
-  const affiliateId = req.user?.id || req.user?.affiliateId;
-
-  const cleanCnpj = String(cnpj).replace(/\D/g, '');
-
-  if (cleanCnpj.length !== 14) {
-    return res.status(400).json({ error: 'CNPJ inválido. Digite os 14 dígitos.' });
-  }
-
-  try {
-    // A. Verifica se o lead já possui reservante no banco Neon.tech
-    const existingLead = await prisma.lead.findFirst({
-      where: { cnpj: cleanCnpj },
-      include: { affiliate: true }
-    });
-
-    if (existingLead && existingLead.affiliateId) {
-      if (existingLead.affiliateId !== affiliateId) {
-        return res.json({
-          status: 'BLOCKED',
-          message: `Lead bloqueado pelo consultor ${existingLead.affiliate?.companyName || 'outro consultor parceiro'}.`,
-          companyName: existingLead.companyName,
-          cnpj: cleanCnpj
-        });
-      }
-    }
-
-    // B. Requisição para a BrasilAPI pública com User-Agent
-    const apiResponse = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cleanCnpj}`, {
-      headers: {
-        'User-Agent': 'SejaPulso-B2B-App/1.0'
-      }
-    });
-
-    if (apiResponse.status === 404) {
-      return res.status(404).json({ error: 'CNPJ não encontrado na base da Receita Federal.' });
-    }
-
-    if (!apiResponse.ok) {
-      return res.status(502).json({ error: 'Serviço da Receita Federal/BrasilAPI temporariamente indisponível.' });
-    }
-
-    const data = await apiResponse.json();
-
-    const companyPayload = {
-      cnpj: cleanCnpj,
-      companyName: data.razao_social,
-      tradeName: data.nome_fantasia || data.razao_social,
-      cnaeCode: data.cnae_fiscal,
-      cnaeDescription: data.cnae_fiscal_descricao,
-      location: `${data.municipio} / ${data.uf}`,
-      officialPhone: data.ddd_telefone_1 || 'Não informado',
-      officialEmail: data.email || 'Não informado'
-    };
-
-    // C. Executa a inteligência de abordagem dinâmica via IA
-    const intelligence = await generateSmartPitch(companyPayload);
-
-    return res.json({
-      status: 'AVAILABLE',
-      ...companyPayload,
-      registrationStatus: data.descricao_situacao_cadastral,
-      intelligence
-    });
-
-  } catch (error) {
-    console.error('❌ [Backend Error - Consulta CNPJ]:', error);
-    return res.status(500).json({ error: 'Erro interno ao consultar dados do CNPJ.' });
-  }
-};
-
-// 4. Controller de Listagem de Leads
-export const listLeads = async (req, res) => {
-  try {
-    const leads = await prisma.lead.findMany({
-      orderBy: { claimedAt: 'desc' }
-    });
-    return res.json(leads);
-  } catch (error) {
-    console.error('Erro ao listar leads:', error);
-    return res.status(500).json({ error: 'Erro ao buscar a base de leads.' });
-  }
-};
-
-// 5. Controller de Agendamento/Claim de Lead
-export const claimLead = async (req, res) => {
-  const { cnpj, companyName, contactName, contactPhone, contactEmail, servicePlan } = req.body;
-  const affiliateId = req.user?.id || req.user?.affiliateId;
-
-  if (!affiliateId) {
-    return res.status(401).json({ error: 'Sessão inválida. Usuário não identificado.' });
-  }
-
-  if (!cnpj) {
-    return res.status(400).json({ error: 'O CNPJ é obrigatório para realizar a reserva.' });
-  }
-
-  try {
-    const cleanCnpj = String(cnpj).replace(/\D/g, '');
-
-    const existingLead = await prisma.lead.findFirst({
-      where: { cnpj: cleanCnpj }
-    });
-
-    let lead;
-
-    if (existingLead) {
-      lead = await prisma.lead.update({
-        where: { id: existingLead.id },
-        data: {
-          affiliateId,
-          status: 'COMMERCIAL_CONTACT',
-          claimedAt: new Date()
-        }
-      });
-    } else {
-      lead = await prisma.lead.create({
-        data: {
-          cnpj: cleanCnpj,
-          companyName: companyName || 'Razão Social não informada',
-          contactName: contactName || companyName || 'Contato Principal',
-          contactPhone: contactPhone || 'Não informado',
-          contactEmail: contactEmail || 'naoinformado@dominio.com',
-          servicePlan: servicePlan || 'STANDARD',
-          affiliateId,
-          status: 'COMMERCIAL_CONTACT',
-          claimedAt: new Date()
-        }
-      });
-    }
-
-    return res.json({
-      message: 'Lead agendado e reservado com sucesso!',
-      lead
-    });
-
-  } catch (error) {
-    console.error('❌ [Backend Error] Falha ao agendar lead:', error);
-    return res.status(500).json({ 
-      error: 'Erro ao agendar lead para negociação.',
-      details: error.message 
-    });
-  }
-};
-
-// 6. Controller para Buscar Carteira do Consultor
-export const getMyLeads = async (req, res) => {
-  const affiliateId = req.user?.id || req.user?.affiliateId;
-
-  if (!affiliateId) {
-    return res.status(401).json({ error: 'Sessão inválida. Usuário não identificado.' });
-  }
-
-  try {
-    const myLeads = await prisma.lead.findMany({
-      where: { affiliateId },
-      orderBy: { claimedAt: 'desc' }
-    });
-
-    return res.json(myLeads);
-  } catch (error) {
-    console.error('❌ Erro ao buscar agendamentos do consultor:', error);
-    return res.status(500).json({ error: 'Erro ao carregar seus agendamentos.' });
-  }
-};
-
+// 1. Repassar Lead para Vendas / Pós-Vendas (Handover)
 export const handoverLead = async (req, res) => {
   const { id: leadId } = req.params;
   const { selectedPackage, finalValue, offerDetails } = req.body;
+
+  // Extrai o ID do consultor autenticado
   const affiliateId = req.user?.id || req.user?.affiliateId;
 
+  console.log(
+    `🚀 [API Call] POST /api/leads/${leadId}/handover iniciada pelo consultor ID: ${affiliateId}`,
+  );
+  console.log("📦 [Payload Recebido]:", {
+    selectedPackage,
+    finalValue,
+    offerDetails,
+  });
+
+  if (!affiliateId) {
+    console.error(
+      "❌ [Handover Error]: Usuário não identificado no Token JWT.",
+    );
+    return res
+      .status(401)
+      .json({ error: "Sessão inválida. Usuário não identificado." });
+  }
+
   try {
-    // 1. Inicia uma transação para garantir que ambas as tabelas sejam atualizadas juntas
     const result = await prisma.$transaction(async (tx) => {
-      // Atualiza o Lead para impedir que o consultor edite ou envie novamente
+      // Atualiza o status do Lead no pool do consultor
+      console.log(
+        `⏳ Atualizando status do Lead ${leadId} para WAITING_INTERNAL_REVIEW...`,
+      );
       const updatedLead = await tx.lead.update({
-        where: { id: leadId, affiliateId }, // Garante que o lead pertence a ele
-        data: { status: 'WAITING_INTERNAL_REVIEW' }
+        where: { id: leadId },
+        data: { status: "WAITING_INTERNAL_REVIEW" },
       });
 
-      // 2. Cria o registro isolado na tabela de Vendas/Contratos para o Admin ver
-      const newDeal = await tx.deal.create({
-        data: {
+      // Salva o fechamento na tabela Deal
+      console.log(`⏳ Gravando contrato na tabela Deal...`);
+      const newDeal = await tx.deal.upsert({
+        where: { leadId },
+        update: {
+          affiliateId,
+          selectedPackage,
+          finalValue: String(finalValue),
+          offerDetails: String(offerDetails),
+          status:
+            selectedPackage === "ENTERPRISE"
+              ? "WAITING_PRICING_SLA"
+              : "WAITING_FINANCIAL_VALIDATION",
+        },
+        create: {
           leadId,
           affiliateId,
           selectedPackage,
-          finalValue,
-          offerDetails
-        }
+          finalValue: String(finalValue),
+          offerDetails: String(offerDetails),
+          status:
+            selectedPackage === "ENTERPRISE"
+              ? "WAITING_PRICING_SLA"
+              : "WAITING_FINANCIAL_VALIDATION",
+        },
       });
 
       return { updatedLead, newDeal };
     });
 
-    return res.status(200).json({ message: 'Venda enviada para avaliação!', data: result });
+    console.log(`✅ [Handover Sucesso]: Lead ${leadId} repassado para vendas!`);
+    return res.status(200).json({
+      message: "Venda repassada para validação interna com sucesso!",
+      data: result,
+    });
   } catch (error) {
-    console.error('Erro no handover:', error);
-    return res.status(500).json({ error: 'Erro ao repassar a venda.' });
+    // 🔴 Exibe a causa exata no terminal do backend
+    console.error(`❌ [Handover Exception Error]:`, error);
+    return res.status(500).json({
+      error: "Erro interno ao registrar handover de venda.",
+      details: error.message,
+    });
+  }
+};
+
+// 2. Buscar agendamentos do consultor logado
+export const getMyLeads = async (req, res) => {
+  const affiliateId = req.user?.id || req.user?.affiliateId;
+  console.log(
+    `🔍 [API Call] GET /api/leads/my-leads pelo consultor ID: ${affiliateId}`,
+  );
+
+  if (!affiliateId) {
+    console.error("❌ [getMyLeads Error]: ID do consultor nulo.");
+    return res
+      .status(401)
+      .json({ error: "Sessão inválida. Usuário não identificado." });
+  }
+
+  try {
+    const myLeads = await prisma.lead.findMany({
+      where: { affiliateId },
+      orderBy: { claimedAt: "desc" },
+    });
+
+    console.log(
+      `✅ [getMyLeads Sucesso]: ${myLeads.length} leads encontrados.`,
+    );
+    return res.json(myLeads);
+  } catch (error) {
+    console.error("❌ [getMyLeads Exception Error]:", error);
+    return res.status(500).json({
+      error: "Erro ao carregar seus agendamentos.",
+      details: error.message,
+    });
+  }
+};
+
+// 3. Reivindicar/Agendar Lead
+export const claimLead = async (req, res) => {
+  const { cnpj, companyName, contactName } = req.body;
+  const affiliateId = req.user?.id || req.user?.affiliateId;
+
+  console.log(
+    `🚀 [API Call] POST /api/leads/claim para CNPJ: ${cnpj} pelo consultor ID: ${affiliateId}`,
+  );
+
+  if (!affiliateId) {
+    console.error("❌ [claimLead Error]: ID do consultor nulo.");
+    return res
+      .status(401)
+      .json({ error: "Sessão inválida. Usuário não identificado." });
+  }
+
+  try {
+    const cleanCnpj = String(cnpj).replace(/\D/g, "");
+
+    const existingLead = await prisma.lead.findFirst({
+      where: { cnpj: cleanCnpj },
+    });
+
+    let lead;
+    if (existingLead) {
+      console.log(`⏳ Atualizando lead existente ID: ${existingLead.id}...`);
+      lead = await prisma.lead.update({
+        where: { id: existingLead.id },
+        data: {
+          affiliateId,
+          status: "COMMERCIAL_CONTACT",
+          claimedAt: new Date(),
+        },
+      });
+    } else {
+      console.log(`⏳ Criando novo lead para o CNPJ ${cleanCnpj}...`);
+      lead = await prisma.lead.create({
+        data: {
+          cnpj: cleanCnpj,
+          companyName: companyName || "Razão Social não informada",
+          contactName: contactName || companyName || "Contato Principal",
+          affiliateId,
+          status: "COMMERCIAL_CONTACT",
+          claimedAt: new Date(),
+        },
+      });
+    }
+
+    console.log(`✅ [claimLead Sucesso]: Lead agendado com sucesso.`);
+    return res.json({
+      message: "Lead agendado e reservado com sucesso!",
+      lead,
+    });
+  } catch (error) {
+    console.error("❌ [claimLead Exception Error]:", error);
+    return res.status(500).json({
+      error: "Erro ao agendar lead para negociação.",
+      details: error.message,
+    });
+  }
+};
+
+// 4. Consultar CNPJ
+// 6. Gera um direcionamento de venda inteligente para o consultor
+// Substitui a função generateSmartPitch atual. Continua usando `openai` e
+// `CNAE_PACKAGE_MAP` que já existem no seu arquivo.
+
+const FREE_EMAIL_DOMAINS = [
+  "gmail.com",
+  "hotmail.com",
+  "outlook.com",
+  "yahoo.com",
+  "yahoo.com.br",
+  "bol.com.br",
+  "uol.com.br",
+  "icloud.com",
+];
+
+// Monta SINAIS reais sobre a empresa. Quanto mais fato verdadeiro a IA recebe,
+// menos ela inventa e menos genérica fica.
+const buildSignals = (c) => {
+  const signals = [];
+
+  const email = String(c.officialEmail || "").toLowerCase();
+  const domain = email.split("@")[1];
+  if (domain) {
+    signals.push(
+      FREE_EMAIL_DOMAINS.includes(domain)
+        ? `Usa e-mail gratuito (${domain}): sinal forte de que NÃO tem domínio/site próprio`
+        : `Usa e-mail com domínio próprio (@${domain}): pode já ter site, vale perguntar se está atualizado`,
+    );
+  }
+
+  if (c.openingDate) {
+    const years = Math.floor(
+      (Date.now() - new Date(c.openingDate).getTime()) / 31557600000,
+    );
+    if (!Number.isNaN(years)) {
+      signals.push(
+        years < 2
+          ? `Empresa nova (${years} ano(s)): precisa ser encontrada e passar credibilidade`
+          : `Empresa com ${years} anos de mercado: já tem clientela, o ganho é organizar e captar mais`,
+      );
+    }
+  }
+
+  if (c.companySize) signals.push(`Porte: ${c.companySize}`);
+  if (c.capitalSocial) signals.push(`Capital social: R$ ${c.capitalSocial}`);
+
+  const phone = String(c.officialPhone || "").replace(/\D/g, "");
+  if (phone.length === 11 && phone[2] === "9") {
+    signals.push("Telefone oficial é celular (provável WhatsApp)");
+  } else if (phone.length === 10) {
+    signals.push(
+      "Telefone oficial é fixo (WhatsApp talvez não seja o canal principal)",
+    );
+  }
+
+  return signals;
+};
+
+const SYSTEM_PROMPT = `Você é um Diretor Comercial B2B sênior da SejaPulso / Pulso Tech. Você treina consultores de vendas que vão abordar pequenas e médias empresas locais, quase sempre pelo WhatsApp, para vender sites e presença digital.
+
+O consultor recebe dados públicos do CNPJ. Ele NÃO conhece a empresa. Sua tarefa é dizer COMO ele deve conduzir a conversa, com a dor mais provável do SEGMENTO.
+
+## Regras de honestidade (mais importantes)
+- Você só tem dados públicos. NUNCA afirme ter visto o Instagram, o site, o trabalho ou os clientes da empresa. Proibido: "acompanho o trabalho de vocês", "vi que vocês...", "parabéns pelo trabalho".
+- Trate dores como PROVÁVEIS do segmento, nunca como fatos sobre a empresa. Use "costuma", "em geral", "muito comum".
+- Use os "signals" recebidos para personalizar. Se um signal indicar e-mail gratuito, a pergunta de abertura pode checar se já têm site. Se a empresa é antiga, valorize a clientela existente.
+- Não invente números, estatísticas nem prazos.
+
+## Tradução do segmento
+- Converta o CNAE para como o dono fala no dia a dia (ex.: "mercadinho", "oficina mecânica", "clínica de estética"). Nunca copie a descrição da Receita.
+
+## Estilo do script de WhatsApp
+- 2 a 3 frases curtas, tom de conversa entre pessoas, sem emoji em excesso (no máximo 1).
+- Começa com o nome da empresa de forma natural e termina com UMA pergunta simples e fácil de responder.
+- Foca em um problema do segmento, não em vender o produto. NÃO mencione preço nem o nome do pacote.
+- Proibido clichê: "estudo rápido de conversão", "carregamento abaixo de 2 segundos", "canal de atendimento instantâneo", "solução completa", "transformação digital", "presença digital" solto, "posso te enviar uma proposta".
+
+## Qualidade
+- Cada item precisa ser específico para ESTE segmento. Se serviria para qualquer empresa, reescreva.
+- Objeções devem ser as que um dono desse segmento realmente faria, com respostas curtas e honestas, sem pressão.
+
+## Formato
+Responda APENAS com JSON válido neste formato exato:
+{
+  "segmentLabel": "string, nome popular do negócio (2 a 4 palavras)",
+  "whyOffer": "string, 2 a 3 frases informais para o consultor: por que esse pacote faz sentido para esse segmento e o que o dono perde sem ele",
+  "painPoints": ["string", "string", "string"],
+  "pitchScript": "string, mensagem de WhatsApp",
+  "openingQuestions": ["string", "string"],
+  "objections": [
+    { "objection": "string", "answer": "string" },
+    { "objection": "string", "answer": "string" }
+  ],
+  "avoid": ["string", "string"],
+  "nextStep": "string, o micro-passo que o consultor deve propor depois da resposta positiva (ex.: mandar exemplo, marcar 10 min de conversa)"
+}
+
+## Exemplo de qualidade (segmento diferente, só para calibrar o nível)
+Entrada: oficina mecânica, e-mail gmail, 8 anos, celular.
+Saída esperada (resumida):
+{
+  "segmentLabel": "Oficina mecânica",
+  "whyOffer": "Oferta o site simples porque oficina vive de confiança e indicação. Quem não acha a oficina no Google ou não vê o que ela faz acaba indo na que aparece primeiro, mesmo sendo pior.",
+  "painPoints": ["Cliente pesquisa 'mecânico perto de mim' e não encontra a oficina", "Orçamento por telefone toma tempo e muita gente desiste de esperar", "Sem lugar para mostrar serviços, horários e localização num só lugar"],
+  "pitchScript": "Oi, pessoal da Auto Center Silva, tudo bem? Trabalho com sites para oficinas e vi que vocês estão em Santo André. Quando alguém busca mecânico na região, vocês já aparecem com endereço e botão de WhatsApp?",
+  "openingQuestions": ["Hoje o cliente novo chega mais por indicação ou por busca na internet?", "Vocês já têm um lugar onde o cliente vê serviços e horário sem precisar ligar?"],
+  "objections": [{"objection": "Meus clientes vêm por indicação", "answer": "Ótimo sinal. O site não substitui isso, ele ajuda quem foi indicado a confirmar que vocês são confiáveis antes de ir."}],
+  "avoid": ["Falar de tecnologia ou SEO com termo técnico", "Mandar o preço antes de entender se ele quer o site"],
+  "nextStep": "Oferecer enviar um exemplo de site de outra oficina e combinar 10 minutos para conversar."
+}`;
+
+const asStringArray = (v, max) =>
+  Array.isArray(v)
+    ? v.filter((x) => typeof x === "string" && x.trim()).slice(0, max)
+    : [];
+
+// Garante que o frontend nunca quebre com resposta incompleta da IA
+const normalizeAiContent = (raw) => {
+  const pitchScript =
+    typeof raw?.pitchScript === "string" ? raw.pitchScript.trim() : "";
+  const whyOffer = typeof raw?.whyOffer === "string" ? raw.whyOffer.trim() : "";
+  if (!pitchScript || !whyOffer) throw new Error("Resposta da IA incompleta");
+
+  return {
+    segmentLabel: String(raw.segmentLabel || "").trim(),
+    whyOffer,
+    painPoints: asStringArray(raw.painPoints, 3),
+    pitchScript,
+    openingQuestions: asStringArray(raw.openingQuestions, 2),
+    objections: Array.isArray(raw.objections)
+      ? raw.objections
+          .filter((o) => o?.objection && o?.answer)
+          .slice(0, 3)
+          .map((o) => ({
+            objection: String(o.objection),
+            answer: String(o.answer),
+          }))
+      : [],
+    avoid: asStringArray(raw.avoid, 3),
+    nextStep: typeof raw?.nextStep === "string" ? raw.nextStep.trim() : "",
+  };
+};
+
+export const consultCnpjAndCheckOwnership = async (req, res) => {
+  const { cnpj } = req.params;
+  const currentAffiliateId = req.user?.id || req.user?.affiliateId;
+
+  const cleanCnpj = cnpj ? cnpj.replace(/\D/g, "") : "";
+
+  console.log(
+    `🔍 [API Call] GET /api/leads/consult/${cleanCnpj} pelo consultor: ${currentAffiliateId}`,
+  );
+
+  if (cleanCnpj.length !== 14) {
+    return res
+      .status(400)
+      .json({ error: "CNPJ inválido. Digite os 14 dígitos." });
+  }
+
+  try {
+    // 1. Verifica no banco se o lead já possui um consultor responsável
+    const existingLead = await prisma.lead.findFirst({
+      where: { cnpj: cleanCnpj },
+      include: { affiliate: true },
+    });
+
+    // 2. Consulta os dados públicos da Receita Federal via BrasilAPI
+    const apiResponse = await fetch(
+      `https://brasilapi.com.br/api/cnpj/v1/${cleanCnpj}`,
+      {
+        headers: { "User-Agent": "SejaPulso-B2B-App/1.0" },
+      },
+    );
+
+    if (apiResponse.status === 404) {
+      return res
+        .status(404)
+        .json({ error: "CNPJ não encontrado na base da Receita Federal." });
+    }
+
+    if (!apiResponse.ok) {
+      return res.status(502).json({
+        error:
+          "Serviço da Receita Federal/BrasilAPI temporariamente indisponível.",
+      });
+    }
+
+    const brasilData = await apiResponse.json();
+
+    // 3. Lógica de Paternidade/Exclusividade
+    const isClaimedByAnother =
+      existingLead &&
+      existingLead.affiliateId &&
+      existingLead.affiliateId !== currentAffiliateId;
+    const isClaimedByMe =
+      existingLead && existingLead.affiliateId === currentAffiliateId;
+
+    // 4. Dados "crus" para a IA (sem placeholders do tipo "não informado")
+    const companyData = {
+      cnpj: cleanCnpj,
+      companyName: brasilData.razao_social,
+      tradeName: brasilData.nome_fantasia || brasilData.razao_social,
+      cnaeCode: brasilData.cnae_fiscal,
+      cnaeDescription: brasilData.cnae_fiscal_descricao,
+      location: `${brasilData.municipio} / ${brasilData.uf}`,
+      officialPhone: brasilData.ddd_telefone_1 || brasilData.telefone_1,
+      officialEmail: brasilData.email,
+      openingDate: brasilData.data_inicio_atividade,
+      companySize: brasilData.porte,
+      capitalSocial: brasilData.capital_social,
+    };
+
+    // 5. Inteligência de vendas (OpenAI). Não gasta chamada se o lead
+    // já pertence a outro consultor. generateSmartPitch nunca lança erro:
+    // em falha ele devolve um fallback.
+    const intelligence = isClaimedByAnother
+      ? null
+      : await generateSmartPitch(companyData);
+
+    // Retorna SEMPRE as informações da empresa, informando a situação da reserva
+    return res.json({
+      status: isClaimedByAnother ? "BLOCKED" : "AVAILABLE",
+      isClaimed: !!existingLead?.affiliateId,
+      isOwnedByMe: isClaimedByMe,
+      claimedByConsultant: isClaimedByAnother
+        ? existingLead.affiliate?.companyName || "Outro Consultor"
+        : null,
+      leadId: existingLead?.id || null,
+      cnpj: cleanCnpj,
+      companyName: brasilData.razao_social || "Razão Social não informada",
+      tradeName:
+        brasilData.nome_fantasia ||
+        brasilData.razao_social ||
+        "Nome Fantasia não informado",
+      registrationStatus: brasilData.descricao_situacao_cadastral || "ATIVA",
+      cnaeCode: brasilData.cnae_fiscal || "",
+      cnaeDescription: brasilData.cnae_fiscal_descricao || "Atividade Geral",
+      location: `${brasilData.municipio || "Cidade"} / ${brasilData.uf || "UF"}`,
+      officialPhone:
+        brasilData.ddd_telefone_1 || brasilData.telefone_1 || "Não informado",
+      officialEmail: brasilData.email || "Não informado",
+      intelligence,
+    });
+  } catch (error) {
+    console.error("❌ [Backend Error - Consulta CNPJ]:", error);
+    return res
+      .status(500)
+      .json({ error: "Erro interno ao consultar dados do CNPJ no servidor." });
+  }
+};
+
+// 5. Listar todos os leads
+export const listLeads = async (req, res) => {
+  console.log(`🔍 [API Call] GET /api/leads/`);
+  try {
+    const leads = await prisma.lead.findMany({
+      orderBy: { claimedAt: "desc" },
+    });
+    return res.json(leads);
+  } catch (error) {
+    console.error("❌ [listLeads Exception Error]:", error);
+    return res.status(500).json({
+      error: "Erro ao buscar a base de leads.",
+      details: error.message,
+    });
+  }
+};
+
+// 5. Retorna todas as vendas/handovers
+export const getMyDeals = async (req, res) => {
+  const affiliateId = req.user?.id || req.user?.affiliateId;
+
+  if (!affiliateId) {
+    return res
+      .status(401)
+      .json({ error: "Sessão inválida. Usuário não identificado." });
+  }
+
+  try {
+    const deals = await prisma.deal.findMany({
+      where: { affiliateId },
+      include: {
+        lead: true,
+        commission: true,
+      },
+      orderBy: { closedAt: "desc" },
+    });
+
+    console.log(
+      `✅ [getMyDeals]: ${deals.length} vendas/handovers encontrados para o afiliado.`,
+    );
+    return res.json(deals);
+  } catch (error) {
+    console.error("❌ Erro ao buscar vendas do consultor:", error);
+    return res
+      .status(500)
+      .json({ error: "Erro ao carregar vendas e comissões." });
   }
 };

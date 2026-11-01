@@ -1,13 +1,16 @@
-import { Router } from 'express';
-import { prisma } from '../config/db.js';
-import { authenticateToken, requireAdmin } from '../middlewares/authMiddleware.js';
-import { 
-  createAffiliateDirectly, 
+import { Router } from "express";
+import { prisma } from "../config/db.js";
+import {
+  authenticateToken,
+  requireAdmin,
+} from "../middlewares/authMiddleware.js";
+import {
+  createAffiliateDirectly,
   getActiveAffiliates,
-  getAffiliateDetails,      
-  updateAffiliateDetails,   
-  deleteAffiliate          
-} from '../controllers/adminController.js';
+  getAffiliateDetails,
+  updateAffiliateDetails,
+  deleteAffiliate,
+} from "../controllers/adminController.js";
 
 const router = Router();
 
@@ -15,40 +18,70 @@ const router = Router();
 router.use(authenticateToken, requireAdmin);
 
 // Lista de afiliados ativos
-router.get('/affiliates/active', getActiveAffiliates);
+router.get("/affiliates/active", getActiveAffiliates);
 
 // Lista de cadastros pendentes
-router.get('/affiliates/pending', async (req, res) => {
+router.get("/affiliates/pending", async (req, res) => {
   try {
     const pending = await prisma.affiliate.findMany({
-      where: { status: 'PENDING_APPROVAL' },
-      orderBy: { createdAt: 'desc' }
+      where: { status: "PENDING_APPROVAL" },
+      orderBy: { createdAt: "desc" },
     });
     return res.json(pending);
   } catch (error) {
-    return res.status(500).json({ error: "Erro ao buscar cadastros pendentes." });
+    return res
+      .status(500)
+      .json({ error: "Erro ao buscar cadastros pendentes." });
   }
 });
 
 // 🚀 NOVAS ROTAS INDIVIDUAIS POR ID (Resolve o 404):
-router.get('/affiliates/:id', getAffiliateDetails);     
-router.put('/affiliates/:id', updateAffiliateDetails);   
-router.delete('/affiliates/:id', deleteAffiliate);   
+router.get("/affiliates/:id", getAffiliateDetails);
+router.put("/affiliates/:id", updateAffiliateDetails);
+router.delete("/affiliates/:id", deleteAffiliate);
 
 // Criação direta e alteração de status
-router.post('/affiliates', createAffiliateDirectly);
-router.patch('/affiliates/:id/status', async (req, res) => {
+router.post("/affiliates", createAffiliateDirectly);
+router.patch("/affiliates/:id/status", async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
   try {
     const updated = await prisma.affiliate.update({
       where: { id },
-      data: { status }
+      data: { status },
     });
     return res.json(updated);
   } catch (error) {
-    return res.status(500).json({ error: "Erro ao atualizar status do afiliado." });
+    return res
+      .status(500)
+      .json({ error: "Erro ao atualizar status do afiliado." });
+  }
+});
+
+// Buscar todas as vendas pendentes de validação pelo Admin
+router.get("/deals/pending", async (req, res) => {
+  try {
+    const deals = await prisma.deal.findMany({
+      include: {
+        affiliate: {
+          select: {
+            id: true,
+            companyName: true,
+            responsible: true,
+            email: true,
+            cnpj: true,
+          },
+        },
+        lead: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return res.json(deals);
+  } catch (error) {
+    console.error("Erro ao buscar vendas pendentes:", error);
+    return res.status(500).json({ error: "Erro ao listar vendas." });
   }
 });
 
