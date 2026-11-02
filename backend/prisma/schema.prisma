@@ -91,10 +91,11 @@ model Deal {
   affiliate       Affiliate @relation(fields: [affiliateId], references: [id])
   
   selectedPackage String   // 'START', 'STANDARD', 'PRO', 'ENTERPRISE'
-  finalValue      String   // Valor negociado ou orçamento estimado
+  finalValue      String   // Valor negociado
   offerDetails    String   @db.Text
   
   status          String   @default("WAITING_FINANCIAL_VALIDATION")
+  asaasPaymentId  String?  
   closedAt        DateTime @default(now())
 
   commission      Commission?

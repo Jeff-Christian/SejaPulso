@@ -10,6 +10,8 @@ import {
   getAffiliateDetails,
   updateAffiliateDetails,
   deleteAffiliate,
+  getPendingDeals,
+  createAsaasCharge,
 } from "../controllers/adminController.js";
 
 const router = Router();
@@ -63,6 +65,16 @@ router.patch("/affiliates/:id/status", async (req, res) => {
 router.get("/deals/pending", async (req, res) => {
   try {
     const deals = await prisma.deal.findMany({
+      where: {
+        // Filtra apenas vendas pendentes de validação financeira/pós-venda
+        status: {
+          in: [
+            "WAITING_FINANCIAL_VALIDATION",
+            "WAITING_PRICING_SLA",
+            "WAITING_INTERNAL_REVIEW",
+          ],
+        },
+      },
       include: {
         affiliate: {
           select: {
@@ -74,15 +86,24 @@ router.get("/deals/pending", async (req, res) => {
           },
         },
         lead: true,
+        commission: true,
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { closedAt: "desc" },
     });
 
     return res.json(deals);
   } catch (error) {
     console.error("Erro ao buscar vendas pendentes:", error);
-    return res.status(500).json({ error: "Erro ao listar vendas." });
+    return res
+      .status(500)
+      .json({ error: "Erro ao listar vendas.", details: error.message });
   }
 });
+
+// Rota de Vendas Pendentes de Validação (Aba Financeiro / Asaas)
+router.get("/deals/pending", getPendingDeals);
+
+// Rota de criação de cobrança no Asaas para uma venda específica
+router.post("/deals/:dealId/create-charge", createAsaasCharge);
 
 export default router;
