@@ -6,6 +6,7 @@ import axios from "axios";
 import {
   findOrCreateAsaasCustomer,
   createAsaasPayment,
+  getAsaasPaymentStatus,
 } from "../services/asaasService.js";
 
 // 1. Criar consultor diretamente via admin
@@ -220,6 +221,10 @@ export const deleteAffiliate = async (req, res) => {
 
 // Buscar todas as vendas/handovers enviados pelos consultores que aguardam validação do Admin/Financeiro
 export const getPendingDeals = async (req, res) => {
+  console.log(
+    "🔥 [Admin Controller] Entrou no getPendingDeals e iniciando validação do Asaas...",
+  );
+
   try {
     const deals = await prisma.deal.findMany({
       where: {
@@ -236,33 +241,77 @@ export const getPendingDeals = async (req, res) => {
           select: {
             id: true,
             companyName: true,
-            tradeName: true,
             responsible: true,
             email: true,
-            phone: true,
             cnpj: true,
           },
         },
         lead: true,
         commission: true,
       },
-      orderBy: { closedAt: "desc" }, // 👈 Alterado de createdAt para closedAt!
+      orderBy: { closedAt: "desc" },
     });
 
-    console.log(
-      `✅ [getPendingDeals Admin]: ${deals.length} vendas pendentes encontradas.`,
+    const synchronizedDeals = await Promise.all(
+      deals.map(async (deal) => {
+        if (!deal.asaasPaymentId) {
+          return deal;
+        }
+
+        console.log(
+          `📡 Consultando status no Asaas para a cobrança: ${deal.asaasPaymentId}`,
+        );
+
+        try {
+          const check = await getAsaasPaymentStatus(deal.asaasPaymentId);
+          console.log(
+            `📥 Status retornado do Asaas para ${deal.asaasPaymentId}:`,
+            check,
+          );
+
+          // Se a cobrança não existe mais ou foi marcada como deletada/cancelada
+          if (
+            !check.exists ||
+            check.deleted ||
+            check.status === "DELETED" ||
+            check.status === "CANCELLED"
+          ) {
+            console.log(
+              `⚠️ Cobrança ${deal.asaasPaymentId} foi REMOVIDA/CANCELADA no Asaas. Limpando no Neon.tech...`,
+            );
+
+            await prisma.deal.update({
+              where: { id: deal.id },
+              data: {
+                asaasPaymentId: null,
+                paymentUrl: null,
+              },
+            });
+
+            return { ...deal, asaasPaymentId: null, paymentUrl: null };
+          }
+        } catch (err) {
+          console.error(
+            `❌ Erro ao validar cobrança Asaas para deal ${deal.id}:`,
+            err.message,
+          );
+        }
+
+        return deal;
+      }),
     );
-    return res.json(deals);
+
+    return res.json(synchronizedDeals);
   } catch (error) {
-    console.error("❌ Erro ao buscar vendas pendentes no Admin:", error);
+    console.error("❌ Erro ao buscar vendas no Admin:", error);
     return res.status(500).json({
-      error: "Erro ao carregar vendas para validação.",
+      error: "Erro ao listar vendas.",
       details: error.message,
     });
   }
 };
 
-// Gerar Cobrança de Sinal 50% via Asaas
+// Gerar Cobrança de Sinal 50% via Asaas (Acionado pelo EditDealModal.jsx)
 export const createAsaasCharge = async (req, res) => {
   const { dealId } = req.params;
 
@@ -281,13 +330,32 @@ export const createAsaasCharge = async (req, res) => {
       return res.status(404).json({ error: "Venda/Deal não encontrada." });
     }
 
-    // 2. Calcula 50% de sinal sobre o valor negociado
-    const numericValue = parseFloat(
-      deal.finalValue.replace(/[^\d,-]/g, "").replace(",", "."),
-    );
-    const downPaymentAmount = isNaN(numericValue) ? 0 : numericValue * 0.5;
+    // 2. TRATAMENTO ROBUSTO DO VALOR (Calcula rigorosamente 50% de sinal)
+    // Converte de "R$ 1.500,00" ou "1500.00" para o número float real (ex: 1500.00)
+    let rawValue = deal.finalValue || "0";
 
-    // 3. Chama o Serviço Isolado do Asaas para garantir/obter o Customer ID
+    // Remove símbolos R$, espaços e converte pontuação brasileira
+    let cleanedString = rawValue
+      .replace(/[^\d,-]/g, "") // Remove tudo que não for dígito, vírgula ou hífen
+      .replace(".", "") // Remove ponto de milhar
+      .replace(",", "."); // Converte vírgula decimal em ponto
+
+    const numericValue = parseFloat(cleanedString);
+
+    if (isNaN(numericValue) || numericValue <= 0) {
+      return res.status(400).json({
+        error: "Valor final da venda inválido para geração de cobrança.",
+      });
+    }
+
+    // 🎯 SINAL DE 50% RIGOROSO:
+    const downPaymentAmount = Number((numericValue * 0.5).toFixed(2));
+
+    console.log(
+      `💰 [Cálculo Asaas] Valor Total Negociado: R$ ${numericValue} | Valor do Sinal (50%): R$ ${downPaymentAmount}`,
+    );
+
+    // 3. Busca ou cria o Customer no Asaas pelo CNPJ limpo
     const asaasCustomerId = await findOrCreateAsaasCustomer({
       cnpj: deal.lead?.cnpj,
       companyName: deal.lead?.companyName,
@@ -295,29 +363,30 @@ export const createAsaasCharge = async (req, res) => {
       phone: deal.lead?.contactPhone,
     });
 
-    // 4. Chama o Serviço Isolado do Asaas para gerar o pagamento
+    // 4. Chama o Serviço Isolado do Asaas para gerar a fatura do sinal (50%)
     const { paymentId, paymentUrl } = await createAsaasPayment({
       customerId: asaasCustomerId,
-      amount: downPaymentAmount,
-      description: `Sinal 50% - Projeto ${deal.selectedPackage} (Pulso Tech)`,
+      amount: downPaymentAmount, // Envia exatamente os 50% calculados
+      description: `Sinal (50%) - Projeto ${deal.selectedPackage} (Pulso Tech)`,
       externalReference: deal.id,
     });
 
-    // 5. Atualiza a venda no seu banco com o ID gerado e novo status
+    // 5. Atualiza o registro no PostgreSQL (Neon.tech)
     const updatedDeal = await prisma.deal.update({
       where: { id: dealId },
       data: {
         asaasPaymentId: paymentId,
+        paymentUrl: paymentUrl,
         status: "WAITING_FINANCIAL_VALIDATION",
       },
     });
 
     console.log(
-      `✅ [Asaas Charge Controller] Cobrança ${paymentId} gerada com sucesso!`,
+      `✅ [Asaas Charge Controller] Cobrança de Sinal (R$ ${downPaymentAmount}) gerada com sucesso! ID: ${paymentId}`,
     );
 
     return res.json({
-      message: "Cobrança de sinal gerada com sucesso no Asaas!",
+      message: `Cobrança de sinal (50% - R$ ${downPaymentAmount}) gerada com sucesso no Asaas!`,
       asaasPaymentId: paymentId,
       paymentUrl,
       deal: updatedDeal,
@@ -325,7 +394,60 @@ export const createAsaasCharge = async (req, res) => {
   } catch (error) {
     console.error("❌ [Asaas Charge Error]:", error.message);
     return res.status(500).json({
-      error: error.message || "Erro interno ao processar cobrança no Asaas.",
+      error:
+        error.message ||
+        "Erro interno ao processar cobrança de sinal no Asaas.",
+    });
+  }
+};
+
+// Atualizar informações da venda/deal pelo Admin (botão "Salvar Alterações")
+export const updateDealDetails = async (req, res) => {
+  const { dealId } = req.params;
+  const {
+    selectedPackage,
+    finalValue,
+    offerDetails,
+    leadCompanyName,
+    leadCnpj,
+  } = req.body;
+
+  try {
+    // 1. Atualiza os dados do contrato na tabela Deal
+    const updatedDeal = await prisma.deal.update({
+      where: { id: dealId },
+      data: {
+        selectedPackage,
+        finalValue,
+        offerDetails,
+      },
+      include: { lead: true, affiliate: true },
+    });
+
+    // 2. Atualiza os dados da Empresa Cliente na tabela Lead se informados
+    if (updatedDeal.leadId && (leadCompanyName || leadCnpj)) {
+      await prisma.lead.update({
+        where: { id: updatedDeal.leadId },
+        data: {
+          companyName: leadCompanyName || undefined,
+          cnpj: leadCnpj ? leadCnpj.replace(/\D/g, "") : undefined,
+        },
+      });
+    }
+
+    console.log(
+      `✅ [Deal Update] Informações da venda ${dealId} atualizadas com sucesso.`,
+    );
+
+    return res.json({
+      message: "Dados da venda atualizados com sucesso!",
+      deal: updatedDeal,
+    });
+  } catch (error) {
+    console.error("❌ Erro ao atualizar dados da venda no Admin:", error);
+    return res.status(500).json({
+      error: "Erro ao atualizar dados da venda.",
+      details: error.message,
     });
   }
 };

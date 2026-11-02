@@ -14,6 +14,7 @@ import {
   CheckCircle,
   CreditCard,
 } from "lucide-react";
+import { EditDealModal } from "../components/EditDealModal";
 import { useNavigate } from "react-router-dom";
 
 export const AdminDashboard = () => {
@@ -32,6 +33,8 @@ export const AdminDashboard = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedAffiliateId, setSelectedAffiliateId] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedDealToEdit, setSelectedDealToEdit] = useState(null);
+  const [isEditDealModalOpen, setIsEditDealModalOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -368,11 +371,12 @@ export const AdminDashboard = () => {
               <div>
                 <h2 className="text-base font-bold text-white flex items-center gap-2">
                   <CreditCard className="w-5 h-5 text-[#00F5D4]" />
-                  Validação de Vendas & Emissão de Sinal (Asaas)
+                  Validação Financeira & Emissão de Faturas
                 </h2>
                 <p className="text-xs text-gray-400 mt-1">
-                  Confira as vendas enviadas pelos consultores e gere o link de
-                  sinal (50%) via Asaas.
+                  Confira as vendas enviadas pelos consultores. Clique em
+                  "Finalizar Venda" para alinhar os termos com o cliente e
+                  emitir a cobrança do sinal (50%).
                 </p>
               </div>
 
@@ -394,7 +398,9 @@ export const AdminDashboard = () => {
                         <th className="py-3 px-4">Pacote</th>
                         <th className="py-3 px-4">Valor Negociado</th>
                         <th className="py-3 px-4">Briefing / Observações</th>
-                        <th className="py-3 px-4 text-right">Ação Asaas</th>
+                        <th className="py-3 px-4 text-right">
+                          Ação Operacional
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#1E2D50]">
@@ -403,7 +409,7 @@ export const AdminDashboard = () => {
                           key={deal.id}
                           className="hover:bg-[#0B132B]/50 transition"
                         >
-                          {/* 1. Consultor / Afiliado de Origem (Exibe Nome e E-mail/Contato) */}
+                          {/* Consultor de origem */}
                           <td className="py-3.5 px-4 font-medium text-white">
                             <p className="font-bold text-[#00F5D4]">
                               {deal.affiliate?.companyName ||
@@ -411,23 +417,21 @@ export const AdminDashboard = () => {
                                 "Consultor"}
                             </p>
                             <p className="text-[10px] text-gray-400 font-mono">
-                              {deal.affiliate?.email ||
-                                deal.affiliate?.phone ||
-                                "Sem e-mail cadastrado"}
+                              E-mail: {deal.affiliate?.email}
                             </p>
                           </td>
 
-                          {/* 2. Cliente / Empresa Negociada (Exibe Nome da Empresa e CNPJ do Cliente) */}
+                          {/* Cliente negociado */}
                           <td className="py-3.5 px-4">
                             <p className="font-bold text-white">
                               {deal.lead?.companyName || "Empresa Registrada"}
                             </p>
                             <p className="text-[10px] text-gray-400 font-mono">
-                              CNPJ: {deal.lead?.cnpj || "N/A"}
+                              CNPJ: {deal.lead?.cnpj}
                             </p>
                           </td>
 
-                          {/* 3. Pacote Contratado */}
+                          {/* Pacote contratado */}
                           <td className="py-3.5 px-4 font-mono">
                             <span
                               className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -440,27 +444,37 @@ export const AdminDashboard = () => {
                             </span>
                           </td>
 
-                          {/* 4. Valor Negociado */}
+                          {/* Valor final */}
                           <td className="py-3.5 px-4 font-mono font-bold text-emerald-400">
                             {deal.finalValue}
                           </td>
 
-                          {/* 5. Briefing / Observações */}
+                          {/* Observações do briefing */}
                           <td
                             className="py-3.5 px-4 text-gray-300 max-w-xs truncate"
                             title={deal.offerDetails}
                           >
-                            {deal.offerDetails || "Sem observações adicionais"}
+                            {deal.offerDetails || "Sem observações"}
                           </td>
 
-                          {/* 6. Botão de Ação Asaas */}
+                          {/* Coluna de Ações com Trava de Botão */}
                           <td className="py-3.5 px-4 text-right">
-                            <button
-                              onClick={() => handleGenerateAsaasCharge(deal)}
-                              className="bg-[#00F5D4] text-[#0B132B] font-bold px-3 py-1.5 rounded-lg text-xs hover:opacity-90 transition shadow-md"
-                            >
-                              Gerar Cobrança Asaas (Sinal 50%)
-                            </button>
+                            {deal.asaasPaymentId ? (
+                              <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold px-3 py-1.5 rounded-lg text-xs inline-flex items-center gap-1.5 cursor-not-allowed opacity-80">
+                                <CheckCircle className="w-3.5 h-3.5" />
+                                <span>Cobrança Gerada</span>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setSelectedDealToEdit(deal);
+                                  setIsEditDealModalOpen(true);
+                                }}
+                                className="bg-[#00F5D4] text-[#0B132B] font-bold px-3.5 py-1.5 rounded-lg text-xs hover:opacity-90 transition shadow-md"
+                              >
+                                Finalizar Venda
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -468,6 +482,17 @@ export const AdminDashboard = () => {
                   </table>
                 </div>
               )}
+
+              {/* Modal de Alinhamento e Disparo de Cobrança */}
+              <EditDealModal
+                deal={selectedDealToEdit}
+                isOpen={isEditDealModalOpen}
+                onClose={() => setIsEditDealModalOpen(false)}
+                onSuccess={(msg) => {
+                  setActionSuccess(msg);
+                  fetchData();
+                }}
+              />
             </section>
           )}
         </main>

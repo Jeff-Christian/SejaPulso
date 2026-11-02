@@ -109,3 +109,41 @@ export const createAsaasPayment = async ({
     paymentUrl: paymentData.invoiceUrl || paymentData.bankSlipUrl,
   };
 };
+
+// Verifica o status de uma cobrança no Asaas
+export const getAsaasPaymentStatus = async (paymentId) => {
+  const baseUrl = process.env.ASAAS_API_URL || "https://www.asaas.com/api/v3";
+  const apiKey = process.env.ASAAS_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("Chave ASAAS_API_KEY não configurada no servidor.");
+  }
+
+  const response = await fetch(`${baseUrl}/payments/${paymentId}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      access_token: apiKey.trim(),
+    },
+  });
+
+  if (response.status === 404) {
+    return { exists: false, status: "DELETED" };
+  }
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    return {
+      exists: false,
+      status: "ERROR",
+      message: data.errors?.[0]?.description,
+    };
+  }
+
+  return {
+    exists: true,
+    status: data.status, // Ex: 'PENDING', 'RECEIVED', 'DELETED', 'OVERDUE'
+    deleted: data.deleted || false,
+  };
+};

@@ -1,57 +1,58 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom'; // 👈 1. Importa o hook de navegação
-import { apiRequest } from '../services/api';
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { apiRequest } from "../services/api";
 
 export const Login = ({ onLoginSuccess }) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
-  const navigate = useNavigate(); // 👈 2. Instancia o roteador
+  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log('🚀 [Login.jsx] Botão Clicado. Iniciando autenticação para:', email);
-    
+    console.log("🚀 [Login.jsx] Iniciando autenticação para:", email);
+
     setLoading(true);
-    setError('');
+    setError("");
+
+    // 🧹 Limpa tokens residuais velhos que poderiam poluir as chamadas de verificação
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
 
     try {
-      const data = await apiRequest('/auth/login', 'POST', { email, password });
-      
-      console.log('✅ [Login.jsx] Autenticação realizada com sucesso:', data);
+      const data = await apiRequest("/auth/login", "POST", { email, password });
 
-      // 1. Grava no navegador
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      console.log("✅ [Login.jsx] Autenticação bem-sucedida:", data);
 
-      // 2. Avisa o App.jsx
+      // 1. Grava os novos dados de autenticação
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("user", JSON.stringify(data.user));
+
+      // 2. Notifica o estado pai (App.jsx) se aplicável
       if (onLoginSuccess) {
         onLoginSuccess(data.user);
       }
 
-      // 3. 🚀 AQUI ESTÁ O DIRECCIONAMENTO QUE FALTAVA:
-      if (data.user.role === 'ADMIN') {
-        console.log('🔀 Redirecionando para o Painel do Administrador (/admin)...');
-        navigate('/admin', { replace: true });
+      // 3. Redirecionamento limpo e direto baseado no perfil
+      if (data.user.role === "ADMIN") {
+        navigate("/admin", { replace: true });
       } else {
-        console.log('🔀 Redirecionando para a Dashboard do Afiliado (/dashboard)...');
-        navigate('/dashboard', { replace: true });
+        navigate("/dashboard", { replace: true });
       }
-
     } catch (err) {
-      console.error('❌ [Login.jsx] Erro capturado no catch:', err);
-      setError(err.message || 'Erro ao comunicar com o servidor.');
+      console.error("❌ [Login.jsx] Erro no login:", err.message);
+      setError(err.message || "Erro de comunicação com o servidor.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#0B132B] flex items-center justify-center p-4 font-sans">
-      <form 
-        onSubmit={handleSubmit} 
+    <div className="min-h-screen bg-[#0B132B] flex items-center justify-center p-4 font-sans text-white">
+      <form
+        onSubmit={handleSubmit}
         className="bg-[#1C2541] p-8 rounded-2xl max-w-md w-full border border-slate-800 shadow-xl"
       >
         <h2 className="text-2xl font-bold text-white mb-6 text-center">
@@ -65,7 +66,9 @@ export const Login = ({ onLoginSuccess }) => {
         )}
 
         <div className="mb-4">
-          <label className="block text-slate-400 text-sm mb-2">E-mail corporativo (CNPJ)</label>
+          <label className="block text-slate-400 text-sm mb-2">
+            E-mail corporativo (CNPJ)
+          </label>
           <input
             type="email"
             value={email}
@@ -93,7 +96,7 @@ export const Login = ({ onLoginSuccess }) => {
           disabled={loading}
           className="w-full bg-[#00F5D4] text-[#0B132B] font-bold py-3 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
         >
-          {loading ? 'Autenticando...' : 'Acessar Plataforma'}
+          {loading ? "Autenticando..." : "Acessar Plataforma"}
         </button>
       </form>
     </div>
