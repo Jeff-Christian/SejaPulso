@@ -456,32 +456,41 @@ export const listLeads = async (req, res) => {
 
 // 5. Retorna todas as vendas/handovers
 export const getMyDeals = async (req, res) => {
+  // Extrai o ID do consultor autenticado via token JWT
   const affiliateId = req.user?.id || req.user?.affiliateId;
 
+  console.log(`🔍 [getMyDeals] Buscando vendas/handovers para o consultor ID: ${affiliateId}`);
+
   if (!affiliateId) {
-    return res
-      .status(401)
-      .json({ error: "Sessão inválida. Usuário não identificado." });
+    return res.status(401).json({ error: 'Sessão inválida. Usuário não identificado.' });
   }
 
   try {
     const deals = await prisma.deal.findMany({
       where: { affiliateId },
       include: {
-        lead: true,
-        commission: true,
+        lead: {
+          select: {
+            id: true,
+            companyName: true,
+            cnpj: true,
+            contactPhone: true,
+            contactEmail: true,
+            status: true
+          }
+        },
+        commission: true
       },
-      orderBy: { closedAt: "desc" },
+      orderBy: { closedAt: 'desc' } // 👈 Ordenação oficial por closedAt (existente no schema)
     });
 
-    console.log(
-      `✅ [getMyDeals]: ${deals.length} vendas/handovers encontrados para o afiliado.`,
-    );
+    console.log(`✅ [getMyDeals] ${deals.length} vendas encontradas com sucesso para o consultor.`);
     return res.json(deals);
   } catch (error) {
-    console.error("❌ Erro ao buscar vendas do consultor:", error);
-    return res
-      .status(500)
-      .json({ error: "Erro ao carregar vendas e comissões." });
+    console.error('❌ [Backend Error] Falha ao buscar vendas do consultor:', error);
+    return res.status(500).json({
+      error: 'Erro ao carregar vendas e comissões.',
+      details: error.message
+    });
   }
 };

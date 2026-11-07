@@ -1,20 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { HomePage } from './pages/Home';
 import { Login } from './pages/Login';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { DashboardPage } from './pages/Dashboard';
+import { apiRequest, clearAuthSession } from './services/api';
 
-// Guarda para Área Restrita do Administrador
-const AdminRoute = ({ children }) => {
-  const token = localStorage.getItem('token');
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-
-  if (!token) {
+// Guard para o Painel do Administrador
+const AdminRoute = ({ children, user }) => {
+  if (!user) {
     return <Navigate to="/login" replace />;
   }
 
-  // Se não for ADMIN, envia para a dashboard normal
   if (user.role !== 'ADMIN') {
     return <Navigate to="/dashboard" replace />;
   }
@@ -22,16 +19,12 @@ const AdminRoute = ({ children }) => {
   return children;
 };
 
-// Guarda para Área do Afiliado Consultor
-const PrivateRoute = ({ children }) => {
-  const token = localStorage.getItem('token');
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-
-  if (!token) {
+// Guard para o Painel do Afiliado Consultor
+const PrivateRoute = ({ children, user }) => {
+  if (!user) {
     return <Navigate to="/login" replace />;
   }
 
-  // Se for ADMIN tentando acessar /dashboard, envia para /admin
   if (user.role === 'ADMIN') {
     return <Navigate to="/admin" replace />;
   }
@@ -40,14 +33,42 @@ const PrivateRoute = ({ children }) => {
 };
 
 export const App = () => {
-  const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [user, setUser] = useState(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
-  const handleLoginSuccess = (userData) => {
-    setUser(userData);
-  };
+  useEffect(() => {
+    const verifySession = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const savedUser = localStorage.getItem('user');
+
+        if (!token || !savedUser) {
+          setUser(null);
+          return;
+        }
+
+        // Restaura a instância do usuário se a chave estiver presente
+        setUser(JSON.parse(savedUser));
+      } catch (err) {
+        console.warn("Sessão expirada ou não autorizada. Limpando credenciais...");
+        clearAuthSession();
+        setUser(null);
+      } finally {
+        // Encerra a tela de carregamento independente do resultado
+        setCheckingAuth(false);
+      }
+    };
+
+    verifySession();
+  }, []);
+
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-[#0B132B] flex items-center justify-center text-gray-400 font-mono text-xs">
+        Carregando sessão segura...
+      </div>
+    );
+  }
 
   return (
     <Router>
@@ -56,13 +77,19 @@ export const App = () => {
 
         <Route 
           path="/login" 
-          element={<Login onLoginSuccess={handleLoginSuccess} />} 
+          element={
+            user ? (
+              <Navigate to={user.role === 'ADMIN' ? '/admin' : '/dashboard'} replace />
+            ) : (
+              <Login onLoginSuccess={(userData) => setUser(userData)} />
+            )
+          } 
         />
 
         <Route 
           path="/dashboard" 
           element={
-            <PrivateRoute>
+            <PrivateRoute user={user}>
               <DashboardPage />
             </PrivateRoute>
           } 
@@ -71,7 +98,7 @@ export const App = () => {
         <Route 
           path="/admin" 
           element={
-            <AdminRoute>
+            <AdminRoute user={user}>
               <AdminDashboard />
             </AdminRoute>
           } 

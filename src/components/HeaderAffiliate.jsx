@@ -1,6 +1,7 @@
 import React from 'react';
 import { LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { clearAuthSession } from '../services/api';
 
 export const HeaderAffiliate = () => {
   const navigate = useNavigate();
@@ -8,9 +9,9 @@ export const HeaderAffiliate = () => {
   // Lê os dados do usuário autenticado a partir do localStorage
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate('/login');
+  const handleLogout = async () => {
+    await clearAuthSession(); // Limpa token da memória e destrói cookie HttpOnly
+    navigate('/login', { replace: true });
   };
 
   return (

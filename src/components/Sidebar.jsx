@@ -1,24 +1,24 @@
 import React from "react";
-import {
-  PieChart,
-  Building2,
-  Receipt,
-  Layers,
-  FolderOpen,
-  CheckCircle2,
-  MessageCircle,
-  ShieldCheck,
-  Users,
-  DollarSign,
-  UserPlus,
+import { 
+  PieChart, 
+  Building2, 
+  Receipt, 
+  Layers, 
+  FolderOpen, 
+  ShieldCheck, 
+  Users, 
+  DollarSign, 
+  UserPlus 
 } from "lucide-react";
-
 import LogoPulso from "../assets/SejaPulsoLogo.png";
+import { getAuthUser } from "../services/api"; // 👈 Importa a busca segura em memória
 
 export const Sidebar = ({ activeTab, onSelectTab, onOpenAddModal }) => {
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  // 🔒 Lê o usuário autenticado em memória (sem localStorage)
+  const user = getAuthUser() || {};
   const isAdmin = user.role === "ADMIN";
 
+  // Menu para Afiliados/Consultores
   const affiliateMenuItems = [
     { id: "overview", label: "Visão Geral & KPIs", icon: PieChart },
     { id: "my-leads", label: "Meus Agendamentos", icon: Building2 },
@@ -28,12 +28,12 @@ export const Sidebar = ({ activeTab, onSelectTab, onOpenAddModal }) => {
     { id: "materials", label: "Materiais & Book", icon: FolderOpen },
   ];
 
-  // Configuração corrigida dos itens do ADMIN
+  // Menu exclusivo para o perfil Administrador
   const adminMenuItems = [
     { id: "pending", label: "Aprovações Pendentes", icon: ShieldCheck },
     { id: "affiliates_list", label: "Consultores Ativos", icon: Users },
     { id: "admin_pool", label: "Gestão Pool B2B", icon: Building2 },
-    { id: "financial", label: "Financeiro & Asaas", icon: DollarSign }, // 👈 Atualizado de admin_financial para financial
+    { id: "financial", label: "Financeiro & Asaas", icon: DollarSign },
   ];
 
   const currentMenuItems = isAdmin ? adminMenuItems : affiliateMenuItems;
@@ -41,6 +41,7 @@ export const Sidebar = ({ activeTab, onSelectTab, onOpenAddModal }) => {
   return (
     <aside className="w-full md:w-64 bg-[#111D3A] border-r border-[#1E2D50] flex flex-col justify-between shrink-0 font-sans min-h-screen">
       <div>
+        {/* Header do Menu / Branding */}
         <div className="p-6 border-b border-[#1E2D50] flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <img
@@ -60,6 +61,7 @@ export const Sidebar = ({ activeTab, onSelectTab, onOpenAddModal }) => {
           </span>
         </div>
 
+        {/* Botão de Ação Rápida para o Admin */}
         {isAdmin && onOpenAddModal && (
           <div className="p-4 pb-0">
             <button
@@ -72,6 +74,7 @@ export const Sidebar = ({ activeTab, onSelectTab, onOpenAddModal }) => {
           </div>
         )}
 
+        {/* Links da Barra Lateral */}
         <nav className="p-4 space-y-1.5 font-medium text-xs">
           <p className="text-[10px] uppercase font-mono text-gray-500 px-3 pb-1">
             {isAdmin ? "Módulos de Gestão" : "Menu do Parceiro"}
@@ -84,55 +87,18 @@ export const Sidebar = ({ activeTab, onSelectTab, onOpenAddModal }) => {
               <button
                 key={item.id}
                 onClick={() => onSelectTab(item.id)}
-                className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl transition text-left ${
+                className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl transition ${
                   isActive
-                    ? "text-[#00F5D4] bg-[#0B132B] border border-[#00F5D4]/30"
-                    : "text-gray-400 hover:text-white hover:bg-[#0B132B]/50"
+                    ? "bg-[#00F5D4] text-[#0B132B] font-bold shadow-md shadow-[#00F5D4]/10"
+                    : "text-gray-300 hover:bg-[#0B132B] hover:text-white"
                 }`}
               >
-                <Icon
-                  className={`w-4 h-4 ${isActive ? "text-[#00F5D4]" : "text-gray-400"}`}
-                />
+                <Icon className={`w-4 h-4 ${isActive ? "text-[#0B132B]" : "text-gray-400"}`} />
                 <span>{item.label}</span>
               </button>
             );
           })}
         </nav>
-      </div>
-
-      <div className="p-4 border-t border-[#1E2D50] space-y-3">
-        {!isAdmin ? (
-          <>
-            <div className="bg-[#0B132B] p-3 rounded-xl border border-[#1E2D50] text-xs">
-              <div className="flex items-center justify-between text-gray-400 mb-1">
-                <span>Contrato B2B:</span>
-                <span className="text-[#00F5D4] font-bold flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Assinado
-                </span>
-              </div>
-              <p className="text-[10px] text-gray-500">
-                Termo non-bypass e confidencialidade ativo.
-              </p>
-            </div>
-
-            <a
-              href="https://wa.me/5581999999999"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center space-x-2 w-full py-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition text-xs font-bold"
-            >
-              <MessageCircle className="w-4 h-4" />
-              <span>Suporte ao Afiliado</span>
-            </a>
-          </>
-        ) : (
-          <div className="bg-[#0B132B] p-3 rounded-xl border border-[#1E2D50] text-[11px] text-gray-400">
-            <p className="font-bold text-white">Modo Administrador</p>
-            <p className="text-[10px] text-gray-500 mt-0.5">
-              Conectado ao PostgreSQL (Neon.tech)
-            </p>
-          </div>
-        )}
       </div>
     </aside>
   );

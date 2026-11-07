@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { apiRequest } from "../services/api";
+import { apiRequest, clearAuthSession } from '../services/api';
 import { Sidebar } from "../components/Sidebar";
 import { AddAffiliateModal } from "../components/AddAffiliateModal";
 import { EditAffiliateModal } from "../components/EditAffiliateModal";
@@ -84,9 +84,8 @@ export const AdminDashboard = () => {
     fetchData();
   }, [fetchData]);
 
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate("/login");
+  const handleLogout = async () => {
+    await clearAuthSession(); // Destrói cookies, limpa memória e redireciona para /login
   };
 
   const handleUpdateStatus = async (id, newStatus) => {

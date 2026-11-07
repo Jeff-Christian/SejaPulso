@@ -14,7 +14,7 @@ import { Sidebar } from "../components/Sidebar";
 import { HeaderAffiliate } from "../components/HeaderAffiliate";
 import { LeadCard } from "../components/LeadCard";
 import { MyLeadsTab } from "../components/MyLeadsTab";
-import { apiRequest } from "../services/api";
+import { apiRequest } from '../services/api';
 
 export const DashboardPage = () => {
   const [activeTab, setActiveTab] = useState("overview");

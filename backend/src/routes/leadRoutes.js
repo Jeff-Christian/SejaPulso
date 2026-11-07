@@ -16,20 +16,19 @@ router.use(authenticateToken);
 
 // 1. Meus Leads Agendados (Novo)
 router.get("/my-leads", getMyLeads);
+// 2. Rota para o consultor ver suas vendas e comissões ativas
+router.get("/my-deals", getMyDeals);
 
-// 2. Busca em tempo real via BrasilAPI
+// 3. Busca em tempo real via BrasilAPI
 router.get("/consult/:cnpj", consultCnpjAndCheckOwnership);
 
-// 3. Buscar todos os leads
+// 4. Buscar todos os leads
 router.get("/", listLeads);
 
-// 4. Agendamento/Reivindicação
+// 5. Agendamento/Reivindicação
 router.post("/claim", claimLead);
 
-// 5. Repasse de venda / Handover (Resolve o erro 404)
+// 6. Repasse de venda / Handover (Resolve o erro 404)
 router.post("/:id/handover", handoverLead);
-
-// 6. Rota para o consultor ver suas vendas e comissões ativas
-router.get("/my-deals", getMyDeals);
 
 export default router;
