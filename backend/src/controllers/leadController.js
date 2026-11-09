@@ -92,34 +92,22 @@ export const handoverLead = async (req, res) => {
 
 // 2. Buscar agendamentos do consultor logado
 export const getMyLeads = async (req, res) => {
-  const affiliateId = req.user?.id || req.user?.affiliateId;
-  console.log(
-    `🔍 [API Call] GET /api/leads/my-leads pelo consultor ID: ${affiliateId}`,
-  );
+  const affiliateId = req.user?.id;
 
   if (!affiliateId) {
-    console.error("❌ [getMyLeads Error]: ID do consultor nulo.");
-    return res
-      .status(401)
-      .json({ error: "Sessão inválida. Usuário não identificado." });
+    return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
   }
 
   try {
     const myLeads = await prisma.lead.findMany({
       where: { affiliateId },
-      orderBy: { claimedAt: "desc" },
+      orderBy: { claimedAt: 'desc' }
     });
 
-    console.log(
-      `✅ [getMyLeads Sucesso]: ${myLeads.length} leads encontrados.`,
-    );
     return res.json(myLeads);
   } catch (error) {
-    console.error("❌ [getMyLeads Exception Error]:", error);
-    return res.status(500).json({
-      error: "Erro ao carregar seus agendamentos.",
-      details: error.message,
-    });
+    console.error('Erro ao buscar agendamentos:', error);
+    return res.status(500).json({ error: 'Erro ao carregar agendamentos.' });
   }
 };
 

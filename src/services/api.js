@@ -1,10 +1,4 @@
-// src/services/api.js
-
 const API_BASE_URL = 'http://localhost:3000/api';
-
-// 🛑 Armazenamento seguro do Token em MEMÓRIA (Sem localStorage)
-let inMemoryAccessToken = null;
-let currentUser = null;
 
 export const setAuthSession = (token, user) => {
   if (token) localStorage.setItem('token', token);
@@ -22,13 +16,16 @@ export const clearAuthSession = () => {
 };
 
 export const apiRequest = async (endpoint, method = 'GET', data = null, customToken = null) => {
-  const token = customToken || localStorage.getItem('token');
+  // 🟢 Resgata o token (passado manualmente ou do localStorage)
+  const savedToken = localStorage.getItem('token');
+  const token = customToken || savedToken;
 
   const headers = {
     'Content-Type': 'application/json',
   };
 
-  if (token) {
+  // Insere o cabeçalho apenas se houver token válido
+  if (token && token !== 'null' && token !== 'undefined') {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
@@ -37,30 +34,27 @@ export const apiRequest = async (endpoint, method = 'GET', data = null, customTo
     headers,
   };
 
-  if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+  if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE')) {
     config.body = JSON.stringify(data);
   }
 
+  console.log(`📡 [API Request] ${method} -> ${API_BASE_URL}${endpoint}`);
+
   const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
 
-  // Evita erro de 'Unexpected token < in JSON' ao receber HTML de erro do servidor
   const contentType = response.headers.get('content-type');
   let result = {};
-  
+
   if (contentType && contentType.includes('application/json')) {
     result = await response.json();
-  } else {
-    const text = await response.text();
-    if (!response.ok) {
-      throw new Error(`Erro ${response.status}: Rota não encontrada ou resposta inválida do servidor.`);
-    }
   }
 
   if (response.status === 401 || response.status === 403) {
     if (endpoint !== '/auth/login') {
       clearAuthSession();
+      window.dispatchEvent(new Event('auth:expired'));
     }
-    throw new Error(result.error || 'Acesso não autorizado.');
+    throw new Error(result.error || 'Acesso não autorizado. Token ausente ou expirado.');
   }
 
   if (!response.ok) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   TrendingUp,
   DollarSign,
@@ -14,7 +14,7 @@ import { Sidebar } from "../components/Sidebar";
 import { HeaderAffiliate } from "../components/HeaderAffiliate";
 import { LeadCard } from "../components/LeadCard";
 import { MyLeadsTab } from "../components/MyLeadsTab";
-import { apiRequest } from '../services/api';
+import { apiRequest } from "../services/api";
 
 export const DashboardPage = () => {
   const [activeTab, setActiveTab] = useState("overview");
@@ -38,32 +38,31 @@ export const DashboardPage = () => {
     }
   });
 
-  // Carrega a lista de vendas do consultor logado via API
-  const fetchMyDeals = async () => {
+  // 🟢 1. Busca de vendas sem passar parâmetros extras de token
+  const fetchMyDeals = useCallback(async () => {
     setLoadingSales(true);
     try {
-      const token = localStorage.getItem("token");
-      const data = await apiRequest("/leads/my-deals", "GET", null, token);
+      const data = await apiRequest("/leads/my-deals", "GET");
       setCommissions(data || []);
     } catch (err) {
-      console.error("Erro ao buscar vendas:", err);
+      console.error("Erro ao buscar vendas:", err.message);
     } finally {
       setLoadingSales(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchMyDeals();
-  }, [activeTab]);
+  }, [activeTab, fetchMyDeals]);
 
+  // 🟢 2. Busca de CNPJ simplificada sem repassar token explicitamente
   const handleSearchCnpj = async (e) => {
     e.preventDefault();
     if (!searchCnpj.trim()) return;
 
     const cleanCnpj = searchCnpj.replace(/\D/g, "");
-
     if (cleanCnpj.length !== 14) {
-      setSearchError("Por favor, digite um CNPJ válido com 14 dígitos.");
+      setSearchError("Digite um CNPJ válido com 14 dígitos.");
       return;
     }
 
@@ -72,18 +71,11 @@ export const DashboardPage = () => {
     setLeadResult(null);
 
     try {
-      const token = localStorage.getItem("token");
-      const data = await apiRequest(
-        `/leads/consult/${cleanCnpj}`,
-        "GET",
-        null,
-        token,
-      );
+      // 🟢 Sem o 4º parâmetro extra de token
+      const data = await apiRequest(`/leads/consult/${cleanCnpj}`, "GET");
       setLeadResult(data);
     } catch (err) {
-      setSearchError(
-        err.message || "Erro ao consultar CNPJ na Receita Federal.",
-      );
+      setSearchError(err.message || "Erro ao consultar CNPJ.");
     } finally {
       setSearching(false);
     }
@@ -165,7 +157,7 @@ export const DashboardPage = () => {
                       Faltam{" "}
                       {Math.max(
                         0,
-                        affiliateData.nextTierTarget - affiliateData.dealsCount,
+                        affiliateData.nextTierTarget - affiliateData.dealsCount
                       )}{" "}
                       vendas para subir de nível
                     </span>

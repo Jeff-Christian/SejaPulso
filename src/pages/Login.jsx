@@ -19,7 +19,7 @@ export const Login = ({ onLoginSuccess }) => {
       const data = await apiRequest('/auth/login', 'POST', { email, password });
 
       // 🔒 1. Armazena o token e usuário EXCLUSIVAMENTE em memória (Sem localStorage)
-      setAuthSession(data.accessToken, data.user);
+      setAuthSession(data.token, data.user);
 
       // 2. Notifica o estado do App
       if (onLoginSuccess) {
