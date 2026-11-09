@@ -100,6 +100,8 @@ model Deal {
   closedAt        DateTime @default(now())
 
   commission      Commission?
+
+  paidAt          DateTime?
 }
 
 model Commission {
@@ -116,4 +118,16 @@ model Commission {
   
   affiliateId     String
   affiliate       Affiliate        @relation(fields: [affiliateId], references: [id])
+}
+
+model WebhookEvent {
+  id          String    @id
+  event       String
+  paymentId   String?
+  payload     Json
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+  error       String?
+
+  @@index([paymentId])
 }
