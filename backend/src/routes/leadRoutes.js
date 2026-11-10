@@ -1,4 +1,5 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import {
   consultCnpjAndCheckOwnership,
   listLeads,
@@ -7,29 +8,27 @@ import {
   handoverLead,
   getMyDeals,
 } from "../controllers/leadController.js";
-import { authenticateToken } from "../middlewares/authMiddleware.js";
+import { authenticateToken, requireAdmin } from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
-// Proteção por autenticação JWT
 router.use(authenticateToken);
 
-// 1. Meus Leads Agendados (Novo)
+// Limite por consultor (não por IP), já que a rota exige login
+const consultLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 15, // em versões antigas do pacote, o nome é "max"
+  keyGenerator: (req) => req.user.id,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas consultas seguidas. Aguarde um minuto e tente de novo." },
+});
+
 router.get("/my-leads", getMyLeads);
-
-// 3. Busca em tempo real via BrasilAPI
-router.get("/consult/:cnpj", consultCnpjAndCheckOwnership);
-
-// 4. Buscar todos os leads
-router.get("/", listLeads);
-
-// 5. Agendamento/Reivindicação
+router.get("/consult/:cnpj", consultLimiter, consultCnpjAndCheckOwnership);
+router.get("/", requireAdmin, listLeads); // ← só admin
 router.post("/claim", claimLead);
-
-// 2. Rota para o consultor ver suas vendas e comissões ativas
 router.get("/my-deals", getMyDeals);
-
-// 6. Repasse de venda / Handover (Resolve o erro 404)
 router.post("/:id/handover", handoverLead);
 
 export default router;

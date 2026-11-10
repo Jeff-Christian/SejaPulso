@@ -34,6 +34,24 @@ export const handoverLead = async (req, res) => {
       .json({ error: "Sessão inválida. Usuário não identificado." });
   }
 
+  const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+
+  if (!lead || lead.affiliateId !== affiliateId) {
+    // 404 para não revelar se o ID existe
+    return res.status(404).json({ error: "Lead não encontrado na sua carteira." });
+  }
+
+  if (["WAITING_INTERNAL_REVIEW", "DEAL_CLOSED"].includes(lead.status)) {
+    return res.status(409).json({ error: "Este lead já foi enviado para fechamento." });
+  }
+
+  const existingDeal = await prisma.deal.findUnique({ where: { leadId } });
+  if (existingDeal?.asaasPaymentId) {
+    return res.status(409).json({
+      error: "Já existe uma cobrança emitida para esta venda. Fale com o financeiro para alterações.",
+    });
+  }
+
   try {
     const result = await prisma.$transaction(async (tx) => {
       // Atualiza o status do Lead no pool do consultor
@@ -41,7 +59,7 @@ export const handoverLead = async (req, res) => {
         `⏳ Atualizando status do Lead ${leadId} para WAITING_INTERNAL_REVIEW...`,
       );
       const updatedLead = await tx.lead.update({
-        where: { id: leadId },
+        where: { id: leadId, affiliateId },
         data: { status: "WAITING_INTERNAL_REVIEW" },
       });
 
@@ -337,7 +355,6 @@ export const consultCnpjAndCheckOwnership = async (req, res) => {
     // 1. Verifica no banco se o lead já possui um consultor responsável
     const existingLead = await prisma.lead.findFirst({
       where: { cnpj: cleanCnpj },
-      include: { affiliate: true },
     });
 
     // 2. Consulta os dados públicos da Receita Federal via BrasilAPI
@@ -398,9 +415,7 @@ export const consultCnpjAndCheckOwnership = async (req, res) => {
       status: isClaimedByAnother ? "BLOCKED" : "AVAILABLE",
       isClaimed: !!existingLead?.affiliateId,
       isOwnedByMe: isClaimedByMe,
-      claimedByConsultant: isClaimedByAnother
-        ? existingLead.affiliate?.companyName || "Outro Consultor"
-        : null,
+      claimedByConsultant: isClaimedByAnother ? "Outro consultor" : null,
       leadId: existingLead?.id || null,
       cnpj: cleanCnpj,
       companyName: brasilData.razao_social || "Razão Social não informada",
