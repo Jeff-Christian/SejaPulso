@@ -67,19 +67,46 @@ model Affiliate {
 }
 
 model Lead {
-  id           String     @id @default(uuid())
-  companyName  String
-  cnpj         String?    @unique
-  contactName  String?
-  contactEmail String?
-  contactPhone String?
-  servicePlan  String?
-  status       LeadStatus @default(LEAD_REGISTERED)
-  claimedAt    DateTime   @default(now())
-  
-  affiliateId  String
-  affiliate    Affiliate  @relation(fields: [affiliateId], references: [id])
-  deal         Deal?
+  id              String       @id @default(uuid())
+  companyName     String
+  tradeName       String?
+  cnpj            String?      @unique
+  contactName     String?
+  contactEmail    String?
+  contactPhone    String?
+  servicePlan     String?
+  status          LeadStatus   @default(LEAD_REGISTERED)
+
+  claimedAt       DateTime?                    // antes: @default(now())
+  availableAt     DateTime     @default(now()) // base da carência futura
+
+  city            String?
+  state           String?
+  cnaeCode        String?
+  cnaeDescription String?
+  source          String?                      // BASE_CENTRAL | CONSULTOR
+
+  importBatchId   String?
+  importBatch     ImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  affiliateId     String?                      // antes: obrigatório
+  affiliate       Affiliate?   @relation(fields: [affiliateId], references: [id])
+  deal            Deal?
+
+  @@index([status, state, city])
+  @@index([status, cnaeCode])
+}
+
+model ImportBatch {
+  id         String   @id @default(uuid())
+  filename   String
+  uploadedBy String
+  total      Int
+  inserted   Int
+  duplicates Int
+  invalid    Int
+  createdAt  DateTime @default(now())
+  leads      Lead[]
 }
 
 model Deal {
@@ -96,7 +123,8 @@ model Deal {
   
   status          String   @default("WAITING_FINANCIAL_VALIDATION")
   asaasPaymentId  String?
-  paymentUrl      String?  // 👈 Adicione esta linha!
+  paymentUrl      String?
+  totalCents      Int?
   closedAt        DateTime @default(now())
 
   commission      Commission?

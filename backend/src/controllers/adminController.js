@@ -9,6 +9,21 @@ import {
   getAsaasPaymentStatus,
 } from "../services/asaasService.js";
 
+import { 
+  parseBRLToCents, 
+  centsToReais, 
+  splitDeposit, 
+  formatBRL 
+} from "../utils/money.js";
+
+import { 
+  isValidCnpj, 
+  onlyDigits 
+} from "../utils/brDocs.js";
+
+const CHARGE_LOCK = "CREATING";
+const PACKAGES = ["START", "STANDARD", "PRO", "ENTERPRISE"];
+
 // 1. Criar consultor diretamente via admin
 export const createAffiliateDirectly = async (req, res) => {
   const {
@@ -254,9 +269,10 @@ export const getPendingDeals = async (req, res) => {
 
     const synchronizedDeals = await Promise.all(
       deals.map(async (deal) => {
-        if (!deal.asaasPaymentId) {
-          return deal;
-        }
+      // ignora deals cuja cobrança está sendo criada agora
+      if (!deal.asaasPaymentId || deal.asaasPaymentId === CHARGE_LOCK) {
+        return deal;
+      }
 
         console.log(
           `📡 Consultando status no Asaas para a cobrança: ${deal.asaasPaymentId}`,
@@ -270,11 +286,10 @@ export const getPendingDeals = async (req, res) => {
           );
 
           // Se a cobrança não existe mais ou foi marcada como deletada/cancelada
+          const gone = check.status === "DELETED" || check.deleted === true;
+
           if (
-            !check.exists ||
-            check.deleted ||
-            check.status === "DELETED" ||
-            check.status === "CANCELLED"
+            gone
           ) {
             console.log(
               `⚠️ Cobrança ${deal.asaasPaymentId} foi REMOVIDA/CANCELADA no Asaas. Limpando no Neon.tech...`,
@@ -314,89 +329,80 @@ export const getPendingDeals = async (req, res) => {
 // Gerar Cobrança de Sinal 50% via Asaas (Acionado pelo EditDealModal.jsx)
 export const createAsaasCharge = async (req, res) => {
   const { dealId } = req.params;
-
-  console.log(
-    `🚀 [Asaas Charge Controller] Iniciando geração de cobrança para Deal: ${dealId}`,
-  );
+  let locked = false;
+  let createdPaymentId = null;
 
   try {
-    // 1. Busca os dados da venda no PostgreSQL via Prisma
     const deal = await prisma.deal.findUnique({
       where: { id: dealId },
-      include: { lead: true, affiliate: true },
+      include: { lead: true },
     });
+    if (!deal) return res.status(404).json({ error: "Venda/Deal não encontrada." });
 
-    if (!deal) {
-      return res.status(404).json({ error: "Venda/Deal não encontrada." });
+    if (deal.asaasPaymentId) {
+      return res.status(409).json({ error: "Este deal já possui uma cobrança emitida." });
     }
 
-    // 2. TRATAMENTO ROBUSTO DO VALOR (Calcula rigorosamente 50% de sinal)
-    // Converte de "R$ 1.500,00" ou "1500.00" para o número float real (ex: 1500.00)
-    let rawValue = deal.finalValue || "0";
-
-    // Remove símbolos R$, espaços e converte pontuação brasileira
-    let cleanedString = rawValue
-      .replace(/[^\d,-]/g, "") // Remove tudo que não for dígito, vírgula ou hífen
-      .replace(".", "") // Remove ponto de milhar
-      .replace(",", "."); // Converte vírgula decimal em ponto
-
-    const numericValue = parseFloat(cleanedString);
-
-    if (isNaN(numericValue) || numericValue <= 0) {
-      return res.status(400).json({
-        error: "Valor final da venda inválido para geração de cobrança.",
-      });
+    const totalCents = deal.totalCents ?? parseBRLToCents(deal.finalValue);
+    if (!totalCents) {
+      return res.status(400).json({ error: "Valor final da venda inválido para geração de cobrança." });
     }
+    const { deposit } = splitDeposit(totalCents);
 
-    // 🎯 SINAL DE 50% RIGOROSO:
-    const downPaymentAmount = Number((numericValue * 0.5).toFixed(2));
+    // Trava atômica: só uma requisição consegue ocupar o campo
+    const lock = await prisma.deal.updateMany({
+      where: { id: dealId, asaasPaymentId: null },
+      data: { asaasPaymentId: CHARGE_LOCK },
+    });
+    if (lock.count === 0) {
+      return res.status(409).json({ error: "Já existe uma cobrança sendo emitida para este deal." });
+    }
+    locked = true;
 
-    console.log(
-      `💰 [Cálculo Asaas] Valor Total Negociado: R$ ${numericValue} | Valor do Sinal (50%): R$ ${downPaymentAmount}`,
-    );
-
-    // 3. Busca ou cria o Customer no Asaas pelo CNPJ limpo
-    const asaasCustomerId = await findOrCreateAsaasCustomer({
+    const customerId = await findOrCreateAsaasCustomer({
       cnpj: deal.lead?.cnpj,
       companyName: deal.lead?.companyName,
       email: deal.lead?.contactEmail,
       phone: deal.lead?.contactPhone,
     });
 
-    // 4. Chama o Serviço Isolado do Asaas para gerar a fatura do sinal (50%)
     const { paymentId, paymentUrl } = await createAsaasPayment({
-      customerId: asaasCustomerId,
-      amount: downPaymentAmount, // Envia exatamente os 50% calculados
+      customerId,
+      amount: centsToReais(deposit),
       description: `Sinal (50%) - Projeto ${deal.selectedPackage} (Pulso Tech)`,
       externalReference: deal.id,
     });
+    createdPaymentId = paymentId;
 
-    // 5. Atualiza o registro no PostgreSQL (Neon.tech)
     const updatedDeal = await prisma.deal.update({
       where: { id: dealId },
       data: {
         asaasPaymentId: paymentId,
-        paymentUrl: paymentUrl,
+        paymentUrl,
+        totalCents,
         status: "WAITING_FINANCIAL_VALIDATION",
       },
     });
-
-    console.log(
-      `✅ [Asaas Charge Controller] Cobrança de Sinal (R$ ${downPaymentAmount}) gerada com sucesso! ID: ${paymentId}`,
-    );
+    locked = false;
 
     return res.json({
-      message: `Cobrança de sinal (50% - R$ ${downPaymentAmount}) gerada com sucesso no Asaas!`,
+      message: `Cobrança de sinal (50% - ${formatBRL(deposit)}) gerada com sucesso no Asaas!`,
       asaasPaymentId: paymentId,
       paymentUrl,
       deal: updatedDeal,
     });
   } catch (error) {
+    if (createdPaymentId) {
+      // Cobrança já existe no Asaas mas não foi gravada: mantém a trava e avisa
+      console.error(`🚨 Cobrança ${createdPaymentId} criada no Asaas, mas falhou ao gravar no deal ${dealId}:`, error);
+    } else if (locked) {
+      await prisma.deal
+        .updateMany({ where: { id: dealId, asaasPaymentId: CHARGE_LOCK }, data: { asaasPaymentId: null } })
+        .catch(() => {});
+    }
     console.error("❌ [Asaas Charge Error]:", error.message);
     return res.status(500).json({
-      error:
-        error.message ||
-        "Erro interno ao processar cobrança de sinal no Asaas.",
+      error: error.message || "Erro interno ao processar cobrança de sinal no Asaas.",
     });
   }
 };
@@ -404,50 +410,62 @@ export const createAsaasCharge = async (req, res) => {
 // Atualizar informações da venda/deal pelo Admin (botão "Salvar Alterações")
 export const updateDealDetails = async (req, res) => {
   const { dealId } = req.params;
-  const {
-    selectedPackage,
-    finalValue,
-    offerDetails,
-    leadCompanyName,
-    leadCnpj,
-  } = req.body;
+  const { selectedPackage, finalValue, offerDetails, leadCompanyName, leadCnpj } = req.body;
 
   try {
-    // 1. Atualiza os dados do contrato na tabela Deal
-    const updatedDeal = await prisma.deal.update({
-      where: { id: dealId },
-      data: {
-        selectedPackage,
-        finalValue,
-        offerDetails,
-      },
-      include: { lead: true, affiliate: true },
-    });
+    const current = await prisma.deal.findUnique({ where: { id: dealId } });
+    if (!current) return res.status(404).json({ error: "Venda não encontrada." });
 
-    // 2. Atualiza os dados da Empresa Cliente na tabela Lead se informados
-    if (updatedDeal.leadId && (leadCompanyName || leadCnpj)) {
-      await prisma.lead.update({
-        where: { id: updatedDeal.leadId },
-        data: {
-          companyName: leadCompanyName || undefined,
-          cnpj: leadCnpj ? leadCnpj.replace(/\D/g, "") : undefined,
-        },
+    if (current.asaasPaymentId) {
+      return res.status(409).json({
+        error: "A cobrança já foi emitida. Os termos não podem mais ser alterados por aqui.",
       });
     }
 
-    console.log(
-      `✅ [Deal Update] Informações da venda ${dealId} atualizadas com sucesso.`,
-    );
+    if (!PACKAGES.includes(selectedPackage)) {
+      return res.status(400).json({ error: "Pacote inválido." });
+    }
 
-    return res.json({
-      message: "Dados da venda atualizados com sucesso!",
-      deal: updatedDeal,
+    const totalCents = parseBRLToCents(finalValue);
+    if (!totalCents) {
+      return res.status(400).json({ error: "Valor inválido. Use algo como 1500 ou 1.500,00." });
+    }
+
+    const cleanCnpj = leadCnpj ? onlyDigits(leadCnpj) : null;
+    if (cleanCnpj && !isValidCnpj(cleanCnpj)) {
+      return res.status(400).json({ error: "CNPJ do cliente inválido." });
+    }
+
+    const updatedDeal = await prisma.$transaction(async (tx) => {
+      const deal = await tx.deal.update({
+        where: { id: dealId },
+        data: {
+          selectedPackage,
+          finalValue: formatBRL(totalCents),
+          totalCents,
+          offerDetails,
+        },
+        include: { lead: true, affiliate: true },
+      });
+
+      if (deal.leadId && (leadCompanyName || cleanCnpj)) {
+        await tx.lead.update({
+          where: { id: deal.leadId },
+          data: {
+            companyName: leadCompanyName || undefined,
+            cnpj: cleanCnpj || undefined,
+          },
+        });
+      }
+      return deal;
     });
+
+    return res.json({ message: "Dados da venda atualizados com sucesso!", deal: updatedDeal });
   } catch (error) {
+    if (error.code === "P2002") {
+      return res.status(409).json({ error: "Este CNPJ já está cadastrado em outro lead." });
+    }
     console.error("❌ Erro ao atualizar dados da venda no Admin:", error);
-    return res.status(500).json({
-      error: "Erro ao atualizar dados da venda.",
-      details: error.message,
-    });
+    return res.status(500).json({ error: "Erro ao atualizar dados da venda." });
   }
 };

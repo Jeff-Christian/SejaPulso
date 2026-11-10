@@ -3,6 +3,7 @@ import { apiRequest, clearAuthSession } from '../services/api';
 import { Sidebar } from "../components/Sidebar";
 import { AddAffiliateModal } from "../components/AddAffiliateModal";
 import { EditAffiliateModal } from "../components/EditAffiliateModal";
+import { ImportLeadsTab } from "../components/ImportLeadsTab";
 import {
   ShieldCheck,
   Users,
@@ -15,10 +16,8 @@ import {
   CreditCard,
 } from "lucide-react";
 import { EditDealModal } from "../components/EditDealModal";
-import { useNavigate } from "react-router-dom";
 
 export const AdminDashboard = () => {
-  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("pending");
 
   // Estados para dados dos consultores e vendas
@@ -84,8 +83,9 @@ export const AdminDashboard = () => {
     fetchData();
   }, [fetchData]);
 
-  const handleLogout = async () => {
-    await clearAuthSession(); // Destrói cookies, limpa memória e redireciona para /login
+  const handleLogout = () => {
+    clearAuthSession();
+    window.location.replace("/login");
   };
 
   const handleUpdateStatus = async (id, newStatus) => {
@@ -126,36 +126,6 @@ export const AdminDashboard = () => {
   const handleOpenEditModal = (id) => {
     setSelectedAffiliateId(id);
     setIsEditModalOpen(true);
-  };
-
-  // Ação acionada ao clicar no botão da tabela
-  const handleGenerateAsaasCharge = async (deal) => {
-    setActionSuccess("");
-    setError("");
-    try {
-      const token = localStorage.getItem("token");
-
-      // Dispara a rota que cria a fatura no Asaas
-      const response = await apiRequest(
-        `/admin/deals/${deal.id}/create-charge`,
-        "POST",
-        null,
-        token,
-      );
-
-      setActionSuccess(
-        `Cobrança de sinal gerada no Asaas! ID: ${response.asaasPaymentId}`,
-      );
-
-      // Se o Asaas devolver a URL direta da fatura, podemos até abrir numa nova aba do Asaas
-      if (response.paymentUrl) {
-        window.open(response.paymentUrl, "_blank");
-      }
-
-      fetchData(); // Atualiza os dados
-    } catch (err) {
-      setError(err.message || "Erro ao comunicar com o Asaas.");
-    }
   };
 
   return (
@@ -494,6 +464,9 @@ export const AdminDashboard = () => {
               />
             </section>
           )}
+          
+          {/* ABA 4: IMPORTAÇÃO DE LEADS */}
+          {activeTab === "admin_pool" && <ImportLeadsTab />}
         </main>
       </div>
 

@@ -14,6 +14,11 @@ import {
   createAsaasCharge,
   updateDealDetails,
 } from "../controllers/adminController.js";
+import { 
+  uploadSpreadsheet, 
+  importLeads 
+} from "../controllers/leadImportController.js";
+
 
 const router = Router();
 
@@ -67,5 +72,8 @@ router.get("/deals/pending", getPendingDeals);
 // Rotas de criação de cobrança e atualização de termos da venda
 router.post("/deals/:dealId/create-charge", createAsaasCharge);
 router.put("/deals/:dealId", updateDealDetails);
+
+// Rotas de importação de leads
+router.post("/leads/import", authenticateToken, requireAdmin, uploadSpreadsheet, importLeads);
 
 export default router;

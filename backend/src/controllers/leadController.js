@@ -3,6 +3,9 @@ import { prisma } from "../config/db.js";
 import OpenAI from "openai";
 
 import { generateSmartPitch } from "../services/pitchService.js";
+import { isValidCnpj, onlyDigits } from "../utils/brDocs.js";
+
+const MAX_ACTIVE_LEADS = 20;
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || "",
@@ -132,40 +135,59 @@ export const getMyLeads = async (req, res) => {
 // 3. Reivindicar/Agendar Lead
 export const claimLead = async (req, res) => {
   const { cnpj, companyName, contactName } = req.body;
-  const affiliateId = req.user?.id || req.user?.affiliateId;
-
-  console.log(
-    `🚀 [API Call] POST /api/leads/claim para CNPJ: ${cnpj} pelo consultor ID: ${affiliateId}`,
-  );
-
+  const affiliateId = req.user?.id;
   if (!affiliateId) {
-    console.error("❌ [claimLead Error]: ID do consultor nulo.");
-    return res
-      .status(401)
-      .json({ error: "Sessão inválida. Usuário não identificado." });
+    return res.status(401).json({ error: "Sessão inválida. Usuário não identificado." });
+  }
+
+  const cleanCnpj = onlyDigits(cnpj);
+  if (!isValidCnpj(cleanCnpj)) {
+    return res.status(400).json({ error: "CNPJ inválido." });
   }
 
   try {
-    const cleanCnpj = String(cnpj).replace(/\D/g, "");
+    const active = await prisma.lead.count({
+      where: { affiliateId, status: "COMMERCIAL_CONTACT" },
+    });
+    if (active >= MAX_ACTIVE_LEADS) {
+      return res.status(409).json({
+        error: `Você já tem ${MAX_ACTIVE_LEADS} leads em negociação. Finalize ou libere algum antes de reservar outro.`,
+      });
+    }
 
-    const existingLead = await prisma.lead.findFirst({
-      where: { cnpj: cleanCnpj },
+    // 1) Lead livre no pool → reserva atômica (só um consultor consegue)
+    const taken = await prisma.lead.updateMany({
+      where: {
+        cnpj: cleanCnpj,
+        affiliateId: null,
+        status: "POOL",
+        availableAt: { lte: new Date() },
+      },
+      data: { affiliateId, status: "COMMERCIAL_CONTACT", claimedAt: new Date() },
     });
 
-    let lead;
-    if (existingLead) {
-      console.log(`⏳ Atualizando lead existente ID: ${existingLead.id}...`);
-      lead = await prisma.lead.update({
-        where: { id: existingLead.id },
-        data: {
-          affiliateId,
-          status: "COMMERCIAL_CONTACT",
-          claimedAt: new Date(),
-        },
+    if (taken.count === 1) {
+      const lead = await prisma.lead.findUnique({ where: { cnpj: cleanCnpj } });
+      return res.json({ message: "Lead reservado com sucesso!", lead });
+    }
+
+    // 2) Não conseguiu: descobre o motivo
+    const existing = await prisma.lead.findUnique({ where: { cnpj: cleanCnpj } });
+
+    if (existing) {
+      if (existing.affiliateId === affiliateId) {
+        return res.json({ message: "Este lead já está na sua carteira.", lead: existing });
+      }
+      return res.status(409).json({
+        error: existing.affiliateId
+          ? "Este CNPJ já pertence a outro consultor."
+          : "Este CNPJ está temporariamente indisponível.",
       });
-    } else {
-      console.log(`⏳ Criando novo lead para o CNPJ ${cleanCnpj}...`);
-      lead = await prisma.lead.create({
+    }
+
+    // 3) Não existe na base: contato trazido pelo próprio consultor
+    try {
+      const lead = await prisma.lead.create({
         data: {
           cnpj: cleanCnpj,
           companyName: companyName || "Razão Social não informada",
@@ -173,21 +195,19 @@ export const claimLead = async (req, res) => {
           affiliateId,
           status: "COMMERCIAL_CONTACT",
           claimedAt: new Date(),
+          source: "CONSULTOR",
         },
       });
+      return res.json({ message: "Lead reservado com sucesso!", lead });
+    } catch (e) {
+      if (e.code === "P2002") {
+        return res.status(409).json({ error: "Este CNPJ acabou de ser reservado por outro consultor." });
+      }
+      throw e;
     }
-
-    console.log(`✅ [claimLead Sucesso]: Lead agendado com sucesso.`);
-    return res.json({
-      message: "Lead agendado e reservado com sucesso!",
-      lead,
-    });
   } catch (error) {
-    console.error("❌ [claimLead Exception Error]:", error);
-    return res.status(500).json({
-      error: "Erro ao agendar lead para negociação.",
-      details: error.message,
-    });
+    console.error("❌ [claimLead]:", error);
+    return res.status(500).json({ error: "Erro ao reservar lead." });
   }
 };
 

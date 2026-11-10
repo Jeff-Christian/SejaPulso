@@ -63,3 +63,19 @@ export const apiRequest = async (endpoint, method = 'GET', data = null, customTo
 
   return result;
 };
+
+export const apiUpload = async (endpoint, formData) => {
+  const token = localStorage.getItem("token");
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {}, // sem Content-Type: o navegador define
+    body: formData,
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const err = new Error(result.error || "Erro no envio do arquivo.");
+    err.headers = result.headers;
+    throw err;
+  }
+  return result;
+};

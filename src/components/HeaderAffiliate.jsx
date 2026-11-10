@@ -9,9 +9,9 @@ export const HeaderAffiliate = () => {
   // Lê os dados do usuário autenticado a partir do localStorage
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
-  const handleLogout = async () => {
-    await clearAuthSession(); // Limpa token da memória e destrói cookie HttpOnly
-    navigate('/login', { replace: true });
+  const handleLogout = () => {
+    clearAuthSession();
+    window.location.replace("/login");
   };
 
   return (

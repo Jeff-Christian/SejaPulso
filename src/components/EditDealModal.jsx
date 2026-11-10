@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { apiRequest } from "../services/api";
 import { Edit3, Save, X, AlertCircle, CreditCard } from "lucide-react";
+import { parseBRLToCents, formatBRL, splitDeposit } from "../utils/money";
 
 export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
   const [selectedPackage, setSelectedPackage] = useState("START");
@@ -12,6 +13,8 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
   const [saving, setSaving] = useState(false);
   const [generatingCharge, setGeneratingCharge] = useState(false);
   const [error, setError] = useState("");
+
+  const chargeLock = useRef(false);
 
   useEffect(() => {
     if (deal) {
@@ -26,27 +29,30 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
 
   if (!isOpen || !deal) return null;
 
+  const totalCents = parseBRLToCents(finalValue);
+  const split = totalCents ? splitDeposit(totalCents) : null;
+
+  const buildPayload = () => ({
+    selectedPackage,
+    finalValue: formatBRL(totalCents),
+    offerDetails,
+    leadCompanyName,
+    leadCnpj,
+  });
+
   // Ação 1: Apenas Salvar Dados do Contrato
   const handleSaveChanges = async (e) => {
     if (e) e.preventDefault();
+    if (!totalCents) {
+      setError("Informe um valor válido, por exemplo 1500 ou 1.500,00.");
+      return;
+    }
     setSaving(true);
     setError("");
 
     try {
       const token = localStorage.getItem("token");
-      await apiRequest(
-        `/admin/deals/${deal.id}`,
-        "PUT",
-        {
-          selectedPackage,
-          finalValue,
-          offerDetails,
-          leadCompanyName,
-          leadCnpj,
-        },
-        token,
-      );
-
+      await apiRequest(`/admin/deals/${deal.id}`, "PUT", buildPayload(), token);
       onSuccess("Termos da venda atualizados com sucesso!");
       onClose();
     } catch (err) {
@@ -58,27 +64,21 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
 
   // Ação 2: Salvar Atualizações + Disparar Cobrança de Sinal no Asaas (50%)
   const handleConfirmAndCharge = async () => {
+    if (chargeLock.current) return;
+    if (!totalCents) {
+      setError("Informe um valor válido, por exemplo 1500 ou 1.500,00.");
+      return;
+    }
+
+    chargeLock.current = true;
     setGeneratingCharge(true);
     setError("");
 
     try {
       const token = localStorage.getItem("token");
 
-      // 1. Salva/Atualiza os dados validados no banco PostgreSQL
-      await apiRequest(
-        `/admin/deals/${deal.id}`,
-        "PUT",
-        {
-          selectedPackage,
-          finalValue,
-          offerDetails,
-          leadCompanyName,
-          leadCnpj,
-        },
-        token,
-      );
+      await apiRequest(`/admin/deals/${deal.id}`, "PUT", buildPayload(), token);
 
-      // 2. Dispara a criação do Customer e Cobrança no Asaas (via asaasService.js)
       const chargeResponse = await apiRequest(
         `/admin/deals/${deal.id}/create-charge`,
         "POST",
@@ -90,15 +90,14 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
         `Venda finalizada! Cobrança de sinal Asaas gerada para ${leadCompanyName}. ID: ${chargeResponse.asaasPaymentId}`,
       );
 
-      // Se houver URL pública do Asaas, abre em nova aba
       if (chargeResponse.paymentUrl) {
         window.open(chargeResponse.paymentUrl, "_blank");
       }
-
       onClose();
     } catch (err) {
       setError(err.message || "Erro ao emitir cobrança via Asaas.");
     } finally {
+      chargeLock.current = false;
       setGeneratingCharge(false);
     }
   };
@@ -175,18 +174,28 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
               </select>
             </div>
 
-            <div>
+           <div>
               <label className="block text-gray-400 mb-1 font-medium">
                 Valor Final Negociado (R$) *
               </label>
               <input
                 type="text"
+                inputMode="decimal"
                 value={finalValue}
                 onChange={(e) => setFinalValue(e.target.value)}
-                placeholder="Ex: 1500"
+                onBlur={() => totalCents && setFinalValue(formatBRL(totalCents))}
+                placeholder="Ex: 1.500,00"
                 className="w-full bg-[#0B132B] border border-[#1E2D50] rounded-xl px-3 py-2 text-emerald-400 font-mono font-bold focus:outline-none focus:border-[#00F5D4]"
                 required
               />
+              {finalValue && !totalCents ? (
+                <p className="mt-1 text-[10px] text-red-400">Valor não reconhecido.</p>
+              ) : split ? (
+                <p className="mt-1 text-[10px] text-gray-400 font-mono">
+                  Sinal agora: <span className="text-[#00F5D4]">{formatBRL(split.deposit)}</span>
+                  {" · "}Restante: {formatBRL(split.balance)}
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -218,7 +227,7 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
               {/* Botão Secundário: Apenas salvar */}
               <button
                 type="submit"
-                disabled={saving || generatingCharge}
+                disabled={saving || generatingCharge || !totalCents}
                 className="px-3 py-2 rounded-xl bg-[#1E2D50] text-white hover:bg-[#2A3E6D] transition flex items-center gap-1 font-medium"
               >
                 <Save className="w-3.5 h-3.5" />
@@ -229,7 +238,7 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
               <button
                 type="button"
                 onClick={handleConfirmAndCharge}
-                disabled={saving || generatingCharge}
+                disabled={saving || generatingCharge || !totalCents}
                 className="px-4 py-2 rounded-xl bg-[#00F5D4] text-[#0B132B] font-bold hover:opacity-90 transition flex items-center gap-1.5 shadow-lg shadow-[#00F5D4]/10"
               >
                 <CreditCard className="w-4 h-4" />
