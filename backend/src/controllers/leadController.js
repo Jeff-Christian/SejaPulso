@@ -4,8 +4,7 @@ import OpenAI from "openai";
 
 import { generateSmartPitch } from "../services/pitchService.js";
 import { isValidCnpj, onlyDigits } from "../utils/brDocs.js";
-
-const MAX_ACTIVE_LEADS = 20;
+import { countActiveLeads, MAX_ACTIVE_LEADS } from "../services/leadPoolService.js";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || "",
@@ -146,9 +145,7 @@ export const claimLead = async (req, res) => {
   }
 
   try {
-    const active = await prisma.lead.count({
-      where: { affiliateId, status: "COMMERCIAL_CONTACT" },
-    });
+    const active = await countActiveLeads(affiliateId);
     if (active >= MAX_ACTIVE_LEADS) {
       return res.status(409).json({
         error: `Você já tem ${MAX_ACTIVE_LEADS} leads em negociação. Finalize ou libere algum antes de reservar outro.`,

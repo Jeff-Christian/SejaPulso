@@ -14,6 +14,7 @@ import { Sidebar } from "../components/Sidebar";
 import { HeaderAffiliate } from "../components/HeaderAffiliate";
 import { LeadCard } from "../components/LeadCard";
 import { MyLeadsTab } from "../components/MyLeadsTab";
+import { PoolQueue } from "../components/PoolQueue";
 import { apiRequest } from "../services/api";
 
 export const DashboardPage = () => {
@@ -228,6 +229,9 @@ export const DashboardPage = () => {
 
           {/* ================= TAB 3: POOL DE LEADS B2B ================= */}
           {activeTab === "leads" && (
+          <div className="space-y-8">
+            <PoolQueue onGoToMyLeads={() => setActiveTab("my-leads")} />
+
             <div className="bg-[#111D3A] border border-[#1E2D50] rounded-2xl p-6 space-y-6">
               <div>
                 <h2 className="text-xl font-bold text-white">
@@ -280,6 +284,7 @@ export const DashboardPage = () => {
                 </div>
               )}
             </div>
+          </div>
           )}
 
           {/* ================= TAB 4: VENDAS & NOTAS FISCAIS ================= */}

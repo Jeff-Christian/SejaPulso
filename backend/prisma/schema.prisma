@@ -19,11 +19,22 @@ enum AffiliateStatus {
 
 enum LeadStatus {
   LEAD_REGISTERED
+  POOL                      
   COMMERCIAL_CONTACT
-  WAITING_INTERNAL_REVIEW 
+  WAITING_INTERNAL_REVIEW
   PROPOSAL_SENT
   DEAL_CLOSED
   DISCARDED
+}
+
+enum ContactOutcome {
+  NO_ANSWER
+  INVALID_NUMBER
+  CALL_BACK
+  CONTACTED
+  MEETING_SCHEDULED
+  NOT_INTERESTED
+  AWAITING_CLOSING
 }
 
 enum CommissionStatus {
@@ -95,6 +106,26 @@ model Lead {
 
   @@index([status, state, city])
   @@index([status, cnaeCode])
+
+  lastOutcome    ContactOutcome?
+  lastActivityAt DateTime?
+  nextActionAt   DateTime?
+  activities     LeadActivity[]
+}
+
+model LeadActivity {
+  id           String         @id @default(uuid())
+  leadId       String
+  lead         Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  affiliateId  String
+  outcome      ContactOutcome
+  reason       String?
+  note         String?        @db.Text
+  nextActionAt DateTime?
+  createdAt    DateTime       @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([affiliateId, createdAt])
 }
 
 model ImportBatch {
