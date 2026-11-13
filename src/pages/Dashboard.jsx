@@ -15,6 +15,8 @@ import { HeaderAffiliate } from "../components/HeaderAffiliate";
 import { LeadCard } from "../components/LeadCard";
 import { MyLeadsTab } from "../components/MyLeadsTab";
 import { PoolQueue } from "../components/PoolQueue";
+import { ServiceCatalogTab } from "../components/ServiceCatalogTab";
+import { getPackageByCode } from "../config/serviceCatalog";
 import { apiRequest } from "../services/api";
 
 export const DashboardPage = () => {
@@ -357,7 +359,7 @@ export const DashboardPage = () => {
                               </p>
                             </td>
                             <td className="py-4 px-4 font-mono text-[#00F5D4]">
-                              {item.selectedPackage || "Serviço B2B"}
+                              {getPackageByCode(item.selectedPackage)?.name || item.selectedPackage || "Serviço B2B"}
                             </td>
                             <td className="py-4 px-4 font-mono text-gray-300">
                               {item.finalValue || item.dealValue || "R$ 0,00"}
@@ -412,37 +414,7 @@ export const DashboardPage = () => {
           )}
 
           {/* ================= TAB 5: CARDÁPIO DE SERVIÇOS ================= */}
-          {activeTab === "pricing" && (
-            <div className="bg-[#111D3A] border border-[#1E2D50] rounded-2xl p-6 space-y-6">
-              <h2 className="text-xl font-bold text-white">
-                Cardápio de Serviços & Pacotes Padronizados
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-[#0B132B] border border-[#1E2D50] p-6 rounded-2xl space-y-3">
-                  <span className="text-[10px] font-mono text-[#00F5D4] bg-[#00F5D4]/10 px-2.5 py-1 rounded">
-                    Landing Page Start
-                  </span>
-                  <p className="text-2xl font-black font-mono text-white mt-2">
-                    R$ 1.500,00
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    Página única focada em conversão e otimizada para anúncios.
-                  </p>
-                </div>
-                <div className="bg-[#0B132B] border border-[#00F5D4]/40 p-6 rounded-2xl space-y-3">
-                  <span className="text-[10px] font-mono text-[#0B132B] bg-[#00F5D4] font-bold px-2.5 py-1 rounded">
-                    Mais Vendido
-                  </span>
-                  <p className="text-2xl font-black font-mono text-white mt-2">
-                    R$ 2.500,00
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    Site Institucional Standard até 5 páginas e otimização SEO.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
+          {activeTab === "pricing" && <ServiceCatalogTab />}
 
           {/* ================= TAB 6: MATERIAIS DE APOIO ================= */}
           {activeTab === "materials" && (

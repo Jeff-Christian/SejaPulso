@@ -1,6 +1,6 @@
 import fetch from "node-fetch";
 import { prisma } from "../config/db.js";
-import OpenAI from "openai";
+import { getPackageByCode } from "../config/serviceCatalog.js";
 
 import { getFreePitch } from "../services/pitchGateway.js";
 import { toCompanyData } from "../services/brasilApiService.js";
@@ -8,16 +8,11 @@ import { toCompanyData } from "../services/brasilApiService.js";
 import { isValidCnpj, onlyDigits } from "../utils/brDocs.js";
 import { countActiveLeads, MAX_ACTIVE_LEADS } from "../services/leadPoolService.js";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || "",
-});
-
 // 1. Repassar Lead para Vendas / Pós-Vendas (Handover)
 export const handoverLead = async (req, res) => {
   const { id: leadId } = req.params;
   const { selectedPackage, finalValue, offerDetails } = req.body;
 
-  // Extrai o ID do consultor autenticado
   const affiliateId = req.user?.id || req.user?.affiliateId;
 
   console.log(
@@ -30,9 +25,7 @@ export const handoverLead = async (req, res) => {
   });
 
   if (!affiliateId) {
-    console.error(
-      "❌ [Handover Error]: Usuário não identificado no Token JWT.",
-    );
+    console.error("❌ [Handover Error]: Usuário não identificado no Token JWT.");
     return res
       .status(401)
       .json({ error: "Sessão inválida. Usuário não identificado." });
@@ -41,7 +34,6 @@ export const handoverLead = async (req, res) => {
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
 
   if (!lead || lead.affiliateId !== affiliateId) {
-    // 404 para não revelar se o ID existe
     return res.status(404).json({ error: "Lead não encontrado na sua carteira." });
   }
 
@@ -58,7 +50,6 @@ export const handoverLead = async (req, res) => {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // Atualiza o status do Lead no pool do consultor
       console.log(
         `⏳ Atualizando status do Lead ${leadId} para WAITING_INTERNAL_REVIEW...`,
       );
@@ -67,8 +58,14 @@ export const handoverLead = async (req, res) => {
         data: { status: "WAITING_INTERNAL_REVIEW" },
       });
 
-      // Salva o fechamento na tabela Deal
       console.log(`⏳ Gravando contrato na tabela Deal...`);
+      const pkgInfo = getPackageByCode(selectedPackage);
+      const isEnterprise =
+        pkgInfo?.plan === "ENTERPRISE" || selectedPackage === "ENTERPRISE";
+      const dealStatus = isEnterprise
+        ? "WAITING_PRICING_SLA"
+        : "WAITING_FINANCIAL_VALIDATION";
+
       const newDeal = await tx.deal.upsert({
         where: { leadId },
         update: {
@@ -76,10 +73,7 @@ export const handoverLead = async (req, res) => {
           selectedPackage,
           finalValue: String(finalValue),
           offerDetails: String(offerDetails),
-          status:
-            selectedPackage === "ENTERPRISE"
-              ? "WAITING_PRICING_SLA"
-              : "WAITING_FINANCIAL_VALIDATION",
+          status: dealStatus,
         },
         create: {
           leadId,
@@ -87,10 +81,7 @@ export const handoverLead = async (req, res) => {
           selectedPackage,
           finalValue: String(finalValue),
           offerDetails: String(offerDetails),
-          status:
-            selectedPackage === "ENTERPRISE"
-              ? "WAITING_PRICING_SLA"
-              : "WAITING_FINANCIAL_VALIDATION",
+          status: dealStatus,
         },
       });
 
@@ -103,7 +94,6 @@ export const handoverLead = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    // 🔴 Exibe a causa exata no terminal do backend
     console.error(`❌ [Handover Exception Error]:`, error);
     return res.status(500).json({
       error: "Erro interno ao registrar handover de venda.",
@@ -117,19 +107,19 @@ export const getMyLeads = async (req, res) => {
   const affiliateId = req.user?.id;
 
   if (!affiliateId) {
-    return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
+    return res.status(401).json({ error: "Sessão inválida ou expirada." });
   }
 
   try {
     const myLeads = await prisma.lead.findMany({
       where: { affiliateId },
-      orderBy: { claimedAt: 'desc' }
+      orderBy: { claimedAt: "desc" },
     });
 
     return res.json(myLeads);
   } catch (error) {
-    console.error('Erro ao buscar agendamentos:', error);
-    return res.status(500).json({ error: 'Erro ao carregar agendamentos.' });
+    console.error("Erro ao buscar agendamentos:", error);
+    return res.status(500).json({ error: "Erro ao carregar agendamentos." });
   }
 };
 
@@ -211,149 +201,6 @@ export const claimLead = async (req, res) => {
 };
 
 // 4. Consultar CNPJ
-// 6. Gera um direcionamento de venda inteligente para o consultor
-// Substitui a função generateSmartPitch atual. Continua usando `openai` e
-// `CNAE_PACKAGE_MAP` que já existem no seu arquivo.
-
-const FREE_EMAIL_DOMAINS = [
-  "gmail.com",
-  "hotmail.com",
-  "outlook.com",
-  "yahoo.com",
-  "yahoo.com.br",
-  "bol.com.br",
-  "uol.com.br",
-  "icloud.com",
-];
-
-// Monta SINAIS reais sobre a empresa. Quanto mais fato verdadeiro a IA recebe,
-// menos ela inventa e menos genérica fica.
-const buildSignals = (c) => {
-  const signals = [];
-
-  const email = String(c.officialEmail || "").toLowerCase();
-  const domain = email.split("@")[1];
-  if (domain) {
-    signals.push(
-      FREE_EMAIL_DOMAINS.includes(domain)
-        ? `Usa e-mail gratuito (${domain}): sinal forte de que NÃO tem domínio/site próprio`
-        : `Usa e-mail com domínio próprio (@${domain}): pode já ter site, vale perguntar se está atualizado`,
-    );
-  }
-
-  if (c.openingDate) {
-    const years = Math.floor(
-      (Date.now() - new Date(c.openingDate).getTime()) / 31557600000,
-    );
-    if (!Number.isNaN(years)) {
-      signals.push(
-        years < 2
-          ? `Empresa nova (${years} ano(s)): precisa ser encontrada e passar credibilidade`
-          : `Empresa com ${years} anos de mercado: já tem clientela, o ganho é organizar e captar mais`,
-      );
-    }
-  }
-
-  if (c.companySize) signals.push(`Porte: ${c.companySize}`);
-  if (c.capitalSocial) signals.push(`Capital social: R$ ${c.capitalSocial}`);
-
-  const phone = String(c.officialPhone || "").replace(/\D/g, "");
-  if (phone.length === 11 && phone[2] === "9") {
-    signals.push("Telefone oficial é celular (provável WhatsApp)");
-  } else if (phone.length === 10) {
-    signals.push(
-      "Telefone oficial é fixo (WhatsApp talvez não seja o canal principal)",
-    );
-  }
-
-  return signals;
-};
-
-const SYSTEM_PROMPT = `Você é um Diretor Comercial B2B sênior da SejaPulso / Pulso Tech. Você treina consultores de vendas que vão abordar pequenas e médias empresas locais, quase sempre pelo WhatsApp, para vender sites e presença digital.
-
-O consultor recebe dados públicos do CNPJ. Ele NÃO conhece a empresa. Sua tarefa é dizer COMO ele deve conduzir a conversa, com a dor mais provável do SEGMENTO.
-
-## Regras de honestidade (mais importantes)
-- Você só tem dados públicos. NUNCA afirme ter visto o Instagram, o site, o trabalho ou os clientes da empresa. Proibido: "acompanho o trabalho de vocês", "vi que vocês...", "parabéns pelo trabalho".
-- Trate dores como PROVÁVEIS do segmento, nunca como fatos sobre a empresa. Use "costuma", "em geral", "muito comum".
-- Use os "signals" recebidos para personalizar. Se um signal indicar e-mail gratuito, a pergunta de abertura pode checar se já têm site. Se a empresa é antiga, valorize a clientela existente.
-- Não invente números, estatísticas nem prazos.
-
-## Tradução do segmento
-- Converta o CNAE para como o dono fala no dia a dia (ex.: "mercadinho", "oficina mecânica", "clínica de estética"). Nunca copie a descrição da Receita.
-
-## Estilo do script de WhatsApp
-- 2 a 3 frases curtas, tom de conversa entre pessoas, sem emoji em excesso (no máximo 1).
-- Começa com o nome da empresa de forma natural e termina com UMA pergunta simples e fácil de responder.
-- Foca em um problema do segmento, não em vender o produto. NÃO mencione preço nem o nome do pacote.
-- Proibido clichê: "estudo rápido de conversão", "carregamento abaixo de 2 segundos", "canal de atendimento instantâneo", "solução completa", "transformação digital", "presença digital" solto, "posso te enviar uma proposta".
-
-## Qualidade
-- Cada item precisa ser específico para ESTE segmento. Se serviria para qualquer empresa, reescreva.
-- Objeções devem ser as que um dono desse segmento realmente faria, com respostas curtas e honestas, sem pressão.
-
-## Formato
-Responda APENAS com JSON válido neste formato exato:
-{
-  "segmentLabel": "string, nome popular do negócio (2 a 4 palavras)",
-  "whyOffer": "string, 2 a 3 frases informais para o consultor: por que esse pacote faz sentido para esse segmento e o que o dono perde sem ele",
-  "painPoints": ["string", "string", "string"],
-  "pitchScript": "string, mensagem de WhatsApp",
-  "openingQuestions": ["string", "string"],
-  "objections": [
-    { "objection": "string", "answer": "string" },
-    { "objection": "string", "answer": "string" }
-  ],
-  "avoid": ["string", "string"],
-  "nextStep": "string, o micro-passo que o consultor deve propor depois da resposta positiva (ex.: mandar exemplo, marcar 10 min de conversa)"
-}
-
-## Exemplo de qualidade (segmento diferente, só para calibrar o nível)
-Entrada: oficina mecânica, e-mail gmail, 8 anos, celular.
-Saída esperada (resumida):
-{
-  "segmentLabel": "Oficina mecânica",
-  "whyOffer": "Oferta o site simples porque oficina vive de confiança e indicação. Quem não acha a oficina no Google ou não vê o que ela faz acaba indo na que aparece primeiro, mesmo sendo pior.",
-  "painPoints": ["Cliente pesquisa 'mecânico perto de mim' e não encontra a oficina", "Orçamento por telefone toma tempo e muita gente desiste de esperar", "Sem lugar para mostrar serviços, horários e localização num só lugar"],
-  "pitchScript": "Oi, pessoal da Auto Center Silva, tudo bem? Trabalho com sites para oficinas e vi que vocês estão em Santo André. Quando alguém busca mecânico na região, vocês já aparecem com endereço e botão de WhatsApp?",
-  "openingQuestions": ["Hoje o cliente novo chega mais por indicação ou por busca na internet?", "Vocês já têm um lugar onde o cliente vê serviços e horário sem precisar ligar?"],
-  "objections": [{"objection": "Meus clientes vêm por indicação", "answer": "Ótimo sinal. O site não substitui isso, ele ajuda quem foi indicado a confirmar que vocês são confiáveis antes de ir."}],
-  "avoid": ["Falar de tecnologia ou SEO com termo técnico", "Mandar o preço antes de entender se ele quer o site"],
-  "nextStep": "Oferecer enviar um exemplo de site de outra oficina e combinar 10 minutos para conversar."
-}`;
-
-const asStringArray = (v, max) =>
-  Array.isArray(v)
-    ? v.filter((x) => typeof x === "string" && x.trim()).slice(0, max)
-    : [];
-
-// Garante que o frontend nunca quebre com resposta incompleta da IA
-const normalizeAiContent = (raw) => {
-  const pitchScript =
-    typeof raw?.pitchScript === "string" ? raw.pitchScript.trim() : "";
-  const whyOffer = typeof raw?.whyOffer === "string" ? raw.whyOffer.trim() : "";
-  if (!pitchScript || !whyOffer) throw new Error("Resposta da IA incompleta");
-
-  return {
-    segmentLabel: String(raw.segmentLabel || "").trim(),
-    whyOffer,
-    painPoints: asStringArray(raw.painPoints, 3),
-    pitchScript,
-    openingQuestions: asStringArray(raw.openingQuestions, 2),
-    objections: Array.isArray(raw.objections)
-      ? raw.objections
-          .filter((o) => o?.objection && o?.answer)
-          .slice(0, 3)
-          .map((o) => ({
-            objection: String(o.objection),
-            answer: String(o.answer),
-          }))
-      : [],
-    avoid: asStringArray(raw.avoid, 3),
-    nextStep: typeof raw?.nextStep === "string" ? raw.nextStep.trim() : "",
-  };
-};
-
 export const consultCnpjAndCheckOwnership = async (req, res) => {
   const { cnpj } = req.params;
   const currentAffiliateId = req.user?.id || req.user?.affiliateId;
@@ -410,12 +257,9 @@ export const consultCnpjAndCheckOwnership = async (req, res) => {
     // 4. Dados "crus" para a IA (sem placeholders do tipo "não informado")
     const companyData = toCompanyData(brasilData, cleanCnpj);
 
-    // 5. Inteligência de vendas (OpenAI). Não gasta chamada se o lead
-    // já pertence a outro consultor. generateSmartPitch nunca lança erro:
-    // em falha ele devolve um fallback.
+    // 5. Inteligência de vendas (custo zero: cache ou fallback do serviceCatalog)
     const intelligence = isClaimedByAnother ? null : await getFreePitch(companyData);
-    
-    // Retorna SEMPRE as informações da empresa, informando a situação da reserva
+
     return res.json({
       status: isClaimedByAnother ? "BLOCKED" : "AVAILABLE",
       isClaimed: !!existingLead?.affiliateId,
@@ -462,15 +306,14 @@ export const listLeads = async (req, res) => {
   }
 };
 
-// 5. Retorna todas as vendas/handovers
+// 6. Retorna todas as vendas/handovers do consultor
 export const getMyDeals = async (req, res) => {
-  // Extrai o ID do consultor autenticado via token JWT
   const affiliateId = req.user?.id || req.user?.affiliateId;
 
   console.log(`🔍 [getMyDeals] Buscando vendas/handovers para o consultor ID: ${affiliateId}`);
 
   if (!affiliateId) {
-    return res.status(401).json({ error: 'Sessão inválida. Usuário não identificado.' });
+    return res.status(401).json({ error: "Sessão inválida. Usuário não identificado." });
   }
 
   try {
@@ -484,21 +327,21 @@ export const getMyDeals = async (req, res) => {
             cnpj: true,
             contactPhone: true,
             contactEmail: true,
-            status: true
-          }
+            status: true,
+          },
         },
-        commission: true
+        commission: true,
       },
-      orderBy: { closedAt: 'desc' } // 👈 Ordenação oficial por closedAt (existente no schema)
+      orderBy: { closedAt: "desc" },
     });
 
     console.log(`✅ [getMyDeals] ${deals.length} vendas encontradas com sucesso para o consultor.`);
     return res.json(deals);
   } catch (error) {
-    console.error('❌ [Backend Error] Falha ao buscar vendas do consultor:', error);
+    console.error("❌ [Backend Error] Falha ao buscar vendas do consultor:", error);
     return res.status(500).json({
-      error: 'Erro ao carregar vendas e comissões.',
-      details: error.message
+      error: "Erro ao carregar vendas e comissões.",
+      details: error.message,
     });
   }
 };

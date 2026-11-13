@@ -1,26 +1,6 @@
 import OpenAI from "openai";
 import { tripBreaker, isQuotaError } from "./aiGuard.js";
-
-
-// Dicionário de pacote por grupo de CNAE (2 primeiros dígitos)
-export const CNAE_PACKAGE_MAP = {
-  86: {
-    package: "Landing Page Start (R$ 1.500,00)",
-    niche: "Saúde & Estética",
-  },
-  47: {
-    package: "Catálogo Digital Interativo (R$ 1.800,00)",
-    niche: "Varejo & Comércio Local",
-  },
-  69: {
-    package: "Site Institucional Standard (R$ 2.500,00)",
-    niche: "Serviços Jurídicos & Consultorias",
-  },
-  default: {
-    package: "Site Institucional Standard (R$ 2.500,00)",
-    niche: "Serviços B2B Geral",
-  },
-};
+import { getSuggestedPackageByCnae } from "../config/serviceCatalog.js";
 
 // Cliente criado sob demanda: evita erro no import caso o .env ainda não
 // tenha sido carregado quando este módulo é avaliado.
@@ -178,11 +158,17 @@ const normalizeAiContent = (raw) => {
   };
 };
 
+// Consome a Fonte Única (serviceCatalog.js) mantendo o contrato esperado pelo pitchGateway.js
 export const resolvePackage = (cnaeCode) => {
-  const group = String(cnaeCode || "")
-    .replace(/\D/g, "")
-    .substring(0, 2);
-  return CNAE_PACKAGE_MAP[group] || CNAE_PACKAGE_MAP.default;
+  const pkg = getSuggestedPackageByCnae(cnaeCode);
+  return {
+    package: pkg.formattedLabel,
+    packageCode: pkg.code,
+    plan: pkg.plan,
+    deliveryTime: pkg.deliveryTime,
+    howToPitch: pkg.howToPitch,
+    pitchHook: pkg.pitchHook,
+  };
 };
 
 const cleanName = (companyData) =>
@@ -193,22 +179,27 @@ const cleanName = (companyData) =>
     .replace(/\s+/g, " ")
     .trim();
 
-// Fallback honesto: não finge ter acompanhado o trabalho da empresa
+// Fallback honesto alimentado pelo playbook oficial do serviceCatalog.js
 export const buildFallbackPitch = (companyData) => {
   const mappedInfo = resolvePackage(companyData.cnaeCode);
   const name = cleanName(companyData);
-  const place = companyData.location ? `aqui em ${companyData.location}` : "aqui na região";
+  const place = companyData.location
+    ? `aqui em ${companyData.location}`
+    : "aqui na região";
 
   return {
     suggestedPackage: mappedInfo.package,
-    segmentLabel: mappedInfo.niche,
-    whyOffer: `Para empresas de ${mappedInfo.niche}, o ganho mais comum é facilitar o cliente a entender o que a empresa faz e chamar no WhatsApp sem atrito.`,
+    packageCode: mappedInfo.packageCode,
+    plan: mappedInfo.plan,
+    deliveryTime: mappedInfo.deliveryTime,
+    segmentLabel: companyData.cnaeDescription || "Negócio Local",
+    whyOffer: mappedInfo.howToPitch,
     painPoints: [],
-    pitchScript: `Oi, pessoal da ${name}, tudo bem? Trabalho com sites para empresas de ${mappedInfo.niche} ${place}. Hoje, quando um cliente novo procura vocês na internet, ele consegue ver os serviços e chamar direto no WhatsApp?`,
-    openingQuestions: [],
+    pitchScript: `Oi, pessoal da ${name}, tudo bem? Atendemos empresas ${place} com estruturação digital. ${mappedInfo.pitchHook}`,
+    openingQuestions: [mappedInfo.pitchHook],
     objections: [],
     avoid: [],
-    nextStep: "",
+    nextStep: `Apresentar detalhes do pacote ${mappedInfo.package} (prazo: ${mappedInfo.deliveryTime}) e combinar 10 minutos para alinhamento.`,
   };
 };
 
@@ -230,22 +221,31 @@ export const generateSmartPitch = async (companyData) => {
           content: JSON.stringify({
             companyName: cleanCompanyName,
             cnaeDescription: companyData.cnaeDescription,
-            niche: mappedInfo.niche,
             city: companyData.location,
             suggestedPackage: mappedInfo.package,
+            deliveryTime: mappedInfo.deliveryTime,
+            catalogStrategy: mappedInfo.howToPitch,
+            catalogHook: mappedInfo.pitchHook,
             signals: buildSignals(companyData),
           }),
         },
       ],
     });
 
-    console.log("🧮 [AI usage]", response.usage); // tokens reais, para calcular o custo
+    console.log("🧮 [AI usage]", response.usage);
 
     const aiContent = normalizeAiContent(
       JSON.parse(response.choices[0].message.content),
     );
 
-    return { suggestedPackage: mappedInfo.package, ...aiContent, source: "ai" };
+    return {
+      suggestedPackage: mappedInfo.package,
+      packageCode: mappedInfo.packageCode,
+      plan: mappedInfo.plan,
+      deliveryTime: mappedInfo.deliveryTime,
+      ...aiContent,
+      source: "ai",
+    };
   } catch (error) {
     console.error("⚠️ [OpenAI Pitch Warning] Usando fallback:", error.message);
 

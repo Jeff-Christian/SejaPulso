@@ -1,0 +1,31 @@
+Etapa 1: Dashboard e fila de leads (sua prioridade nº 1)
+
+Admin importa XLS de leads para o banco, que vira a fila do consultor
+- Criado, já fiz a importação com o teste.csv mas não chegamos a testar com uma planilha de leads maiores
+
+Botões de tabulação no MyLeadsTab (contato realizado, sem interesse, reunião agendada, aguardando fechamento)
+- Criado, tendo essas tabulações:
+*Botões de tabulação
+
+Os quatro status que você mapeou (contato realizado, sem interesse, reunião agendada, aguardando fechamento) cobrem o final do funil, mas na prospecção fria a maior parte dos contatos termina em outras situações. Eu adicionaria:
+
+Status	Quando usar	Efeito
+NAO_ATENDEU	ligou e ninguém atendeu	continua do consultor
+NUMERO_INVALIDO	telefone errado ou inexistente	marca o lead; aparece para o Admin corrigir
+RETORNAR_DEPOIS	pediram para ligar outro dia	pede uma data de retorno
+CONTATO_REALIZADO	conversa iniciada	continua do consultor
+REUNIAO_AGENDADA	briefing marcado	pede data e hora
+SEM_INTERESSE	recusou	pede um motivo (lista curta) e devolve ao pool com carência
+AGUARDANDO_FECHAMENTO	proposta aceita	abre o Sales Handover*
+
+Histórico de eventos (LeadActivity) em vez de sobrescrever um campo
+- esse não me recordo do que seja
+
+Expiração de reserva, para o lead voltar ao pool se o consultor não atualizar
+- ainda não foi criado
+
+Carência de 60 a 90 dias para SEM_INTERESSE
+- ainda não foi criado
+
+Ficha 360° no Admin, com busca e filtros paginados no servidor
+- não me recordo o que seja

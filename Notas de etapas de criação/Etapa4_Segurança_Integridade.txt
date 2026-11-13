@@ -1,0 +1,16 @@
+Etapa 4: Segurança e integridade (você já decidiu que não é essencial agora)
+
+Race condition no claim (constraint única no CNPJ ativo)
+- não foi implementado
+
+IDOR: filtrar por affiliateId em toda query de consultor
+- não foi implementado
+
+Rate limit e validação com Zod
+- não foi implementado
+
+finalValue está como String no schema, o que merece atenção antes de crescer o volume de dinheiro
+- não foi implementado
+
+Token: hoje 24h sem refresh
+- hoje foi implementado a questão do token mas ainda mantem a pessoa logada mesmo após o token expirar pra não ter que derrubar ela, então tá meio confuso

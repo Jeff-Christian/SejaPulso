@@ -1,0 +1,16 @@
+Etapa 2: Controle de custo da IA (urgente: o app está no fallback)
+
+Cache do pitch por CNPJ
+- já foi implementado, a IA já salva as informações por CNPJ e busca
+
+Limite diário de chamadas
+- implementado recente, mas infelizmente a versão do OPENAI paga não me agrada, queria usar apenas versão gratuita, pra economizar já que a parte da abordagem é mais um direcionamento inicial.
+
+Chave para desligar a IA
+- implementado, foi inserido o tempo de 60min, mas mudamos a regra novamente e agora ele está com um botão travado de IA indisponível, já que não foi inserido crédito e não há versão pré paga
+
+Fallback decente, sem erro 429 aparecendo
+- perfeito, temos retorno
+
+Depois: guardar feedback “ajudou / não ajudou” e enriquecer o prompt com CNAE, porte e idade da empresa
+- não foi inserido ainda

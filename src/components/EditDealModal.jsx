@@ -2,9 +2,13 @@ import React, { useState, useEffect, useRef } from "react";
 import { apiRequest } from "../services/api";
 import { Edit3, Save, X, AlertCircle, CreditCard } from "lucide-react";
 import { parseBRLToCents, formatBRL, splitDeposit } from "../utils/money";
+import {
+  getGroupedPackagesForSelect,
+  getPackageByCode,
+} from "../config/serviceCatalog";
 
 export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
-  const [selectedPackage, setSelectedPackage] = useState("START");
+  const [selectedPackage, setSelectedPackage] = useState("START_LP_EXPRESS");
   const [finalValue, setFinalValue] = useState("");
   const [offerDetails, setOfferDetails] = useState("");
   const [leadCompanyName, setLeadCompanyName] = useState("");
@@ -18,7 +22,7 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
 
   useEffect(() => {
     if (deal) {
-      setSelectedPackage(deal.selectedPackage || "START");
+      setSelectedPackage(deal.selectedPackage || "START_LP_EXPRESS");
       setFinalValue(deal.finalValue || "");
       setOfferDetails(deal.offerDetails || "");
       setLeadCompanyName(deal.lead?.companyName || "");
@@ -28,6 +32,20 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
   }, [deal]);
 
   if (!isOpen || !deal) return null;
+
+  const groupedPackages = getGroupedPackagesForSelect();
+  const isLegacyPackageCode =
+    selectedPackage &&
+    !getPackageByCode(selectedPackage) &&
+    ["START", "STANDARD", "PRO", "ENTERPRISE"].includes(selectedPackage);
+
+  const handlePackageChange = (code) => {
+    setSelectedPackage(code);
+    const pkg = getPackageByCode(code);
+    if (pkg) {
+      setFinalValue(formatBRL(Math.round(pkg.price * 100)));
+    }
+  };
 
   const totalCents = parseBRLToCents(finalValue);
   const split = totalCents ? splitDeposit(totalCents) : null;
@@ -164,17 +182,27 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
               </label>
               <select
                 value={selectedPackage}
-                onChange={(e) => setSelectedPackage(e.target.value)}
+                onChange={(e) => handlePackageChange(e.target.value)}
                 className="w-full bg-[#0B132B] border border-[#1E2D50] rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-[#00F5D4]"
               >
-                <option value="START">START</option>
-                <option value="STANDARD">STANDARD</option>
-                <option value="PRO">PRO</option>
-                <option value="ENTERPRISE">ENTERPRISE (Sob Medida)</option>
+                {isLegacyPackageCode && (
+                  <option value={selectedPackage}>
+                    {selectedPackage} (Legado — selecione abaixo para padronizar)
+                  </option>
+                )}
+                {groupedPackages.map((group) => (
+                  <optgroup key={group.planId} label={group.planLabel}>
+                    {group.options.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
             </div>
 
-           <div>
+            <div>
               <label className="block text-gray-400 mb-1 font-medium">
                 Valor Final Negociado (R$) *
               </label>
@@ -189,10 +217,15 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
                 required
               />
               {finalValue && !totalCents ? (
-                <p className="mt-1 text-[10px] text-red-400">Valor não reconhecido.</p>
+                <p className="mt-1 text-[10px] text-red-400">
+                  Valor não reconhecido.
+                </p>
               ) : split ? (
                 <p className="mt-1 text-[10px] text-gray-400 font-mono">
-                  Sinal agora: <span className="text-[#00F5D4]">{formatBRL(split.deposit)}</span>
+                  Sinal agora:{" "}
+                  <span className="text-[#00F5D4]">
+                    {formatBRL(split.deposit)}
+                  </span>
                   {" · "}Restante: {formatBRL(split.balance)}
                 </p>
               ) : null}
@@ -224,7 +257,6 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
             </button>
 
             <div className="flex items-center gap-2">
-              {/* Botão Secundário: Apenas salvar */}
               <button
                 type="submit"
                 disabled={saving || generatingCharge || !totalCents}
@@ -234,7 +266,6 @@ export const EditDealModal = ({ deal, isOpen, onClose, onSuccess }) => {
                 <span>{saving ? "Salvando..." : "Salvar Alterações"}</span>
               </button>
 
-              {/* Botão Primário: Confirmar & Gerar Cobrança (Sinal 50%) */}
               <button
                 type="button"
                 onClick={handleConfirmAndCharge}

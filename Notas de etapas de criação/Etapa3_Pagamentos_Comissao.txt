@@ -1,0 +1,32 @@
+Etapa 3: Pagamentos e comissão
+
+Esse é um tópico de grandes problemas porque não foi testado grande parte das coisas já que não temos um fluxo direto das coisas, com lançamento, pagamento do sinal, lançamento do sinal pra comissão, entrega e pagamento da segunda parte e finalização
+
+Webhook do Asaas (?)
+- integramos, mas não temos um retorno integral pra verificar status, esses existem no prisma:
+
+model WebhookEvent {
+  id          String    @id
+  event       String
+  paymentId   String?
+  payload     Json
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+  error       String?
+
+  @@index([paymentId])
+}
+
+mas não temos uma finalização do processo
+
+Máquina de estados do deal, com transições válidas
+- testamos o envio e a notificação dos dados mas não temos conclusões ainda
+
+Segunda cobrança (50%), travada se houver estorno
+- não foi implementado sequer segunda cobrança ainda
+
+Upload e validação de NF, em storage de objetos
+- não foi implementado
+
+Notificações (sinal pago, NF validada)
+- não foi confirmado esses dados

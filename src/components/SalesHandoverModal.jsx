@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { apiRequest } from "../services/api";
 import {
   X,
@@ -8,25 +8,62 @@ import {
   AlertCircle,
   Package,
   Clock,
+  Lock,
 } from "lucide-react";
 import { HoldToSubmitButton } from "./HoldToSubmitButton";
+import {
+  getGroupedPackagesForSelect,
+  getPackageByCode,
+} from "../config/serviceCatalog";
 
 export const SalesHandoverModal = ({ isOpen, onClose, lead, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // 1. Estado central que armazena os dados preenchidos no Modal
   const [formData, setFormData] = useState({
     selectedPackage: "",
     finalValue: "",
     offerDetails: "",
   });
 
+  // Se o lead já tiver um pacote sugerido registrado, pré-seleciona ao abrir
+  useEffect(() => {
+    if (isOpen && lead) {
+      const preselected = lead.suggestedPackageCode
+        ? getPackageByCode(lead.suggestedPackageCode)
+        : null;
+
+      setFormData({
+        selectedPackage: preselected ? preselected.code : "",
+        finalValue: preselected
+          ? preselected.price.toFixed(2).replace(".", ",")
+          : "",
+        offerDetails: "",
+      });
+      setError("");
+    }
+  }, [isOpen, lead]);
+
   if (!isOpen || !lead) return null;
 
-  const isCustomProject = formData.selectedPackage === "ENTERPRISE";
+  const groupedPackages = getGroupedPackagesForSelect();
+  const selectedPkgObj = getPackageByCode(formData.selectedPackage);
+  const isCustomProject =
+    selectedPkgObj?.plan === "ENTERPRISE" ||
+    formData.selectedPackage === "ENTERPRISE";
+  const isFixedPricePackage = Boolean(
+    selectedPkgObj && !selectedPkgObj.isStartingPrice,
+  );
 
-  // 2. Função de envio tratando o parâmetro 'e' de forma segura
+  const handlePackageChange = (code) => {
+    const pkg = getPackageByCode(code);
+    setFormData((prev) => ({
+      ...prev,
+      selectedPackage: code,
+      finalValue: pkg ? pkg.price.toFixed(2).replace(".", ",") : "",
+    }));
+  };
+
   const handleSubmit = async (e) => {
     if (e?.preventDefault) e.preventDefault();
 
@@ -35,7 +72,6 @@ export const SalesHandoverModal = ({ isOpen, onClose, lead, onSuccess }) => {
 
     try {
       const token = localStorage.getItem("token");
-      // Envia os dados capturados em 'formData'
       await apiRequest(`/leads/${lead.id}/handover`, "POST", formData, token);
 
       onSuccess();
@@ -92,20 +128,21 @@ export const SalesHandoverModal = ({ isOpen, onClose, lead, onSuccess }) => {
               <select
                 required
                 value={formData.selectedPackage}
-                onChange={(e) =>
-                  setFormData({ ...formData, selectedPackage: e.target.value })
-                }
+                onChange={(e) => handlePackageChange(e.target.value)}
                 className="w-full bg-[#0B132B] border border-[#1E2D50] rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-[#00F5D4]"
               >
                 <option value="" disabled>
-                  Selecione o serviço...
+                  Selecione o serviço do cardápio...
                 </option>
-                <option value="START">Landing Page Start</option>
-                <option value="STANDARD">Site Institucional Standard</option>
-                <option value="PRO">Plataforma Pro</option>
-                <option value="ENTERPRISE">
-                  Projeto Sob Medida (Enterprise)
-                </option>
+                {groupedPackages.map((group) => (
+                  <optgroup key={group.planId} label={group.planLabel}>
+                    {group.options.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
             </div>
 
@@ -114,30 +151,49 @@ export const SalesHandoverModal = ({ isOpen, onClose, lead, onSuccess }) => {
                 <Clock className="w-4 h-4 shrink-0 mt-0.5" />
                 <p className="leading-relaxed">
                   <strong>Atenção ao SLA:</strong> Análise técnica exigida.
-                  Retorno sobre orçamento em <strong>24h a 48h úteis</strong>.
+                  Não passe orçamento fechado ao cliente — retorno da Pulso
+                  Tech em <strong>24h a 48h úteis</strong>.
                 </p>
               </div>
             )}
 
             <div>
-              <label className="block text-gray-400 mb-1.5 font-medium flex items-center gap-1.5">
-                <DollarSign className="w-3.5 h-3.5" />
-                {isCustomProject
-                  ? "Expectativa de Orçamento (R$) *"
-                  : "Valor Final Negociado (R$) *"}
+              <label className="block text-gray-400 mb-1.5 font-medium flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <DollarSign className="w-3.5 h-3.5" />
+                  {isCustomProject
+                    ? "Expectativa de Orçamento (R$) *"
+                    : "Valor Oficial do Pacote (R$) *"}
+                </span>
+                {isFixedPricePackage && (
+                  <span className="text-[10px] font-mono text-gray-400 flex items-center gap-1">
+                    <Lock className="w-3 h-3 text-[#00F5D4]" /> Tabela fixa
+                  </span>
+                )}
               </label>
               <input
                 type="text"
                 required
+                readOnly={isFixedPricePackage}
                 placeholder={
-                  isCustomProject ? "Ex: Estimado R$ 8.500,00" : "Ex: 2500,00"
+                  isCustomProject ? "Ex: A partir de 8.500,00" : "Ex: 1.500,00"
                 }
                 value={formData.finalValue}
                 onChange={(e) =>
                   setFormData({ ...formData, finalValue: e.target.value })
                 }
-                className="w-full bg-[#0B132B] border border-[#1E2D50] rounded-xl px-3 py-2.5 text-white font-mono focus:outline-none focus:border-[#00F5D4]"
+                className={`w-full bg-[#0B132B] border border-[#1E2D50] rounded-xl px-3 py-2.5 font-mono focus:outline-none ${
+                  isFixedPricePackage
+                    ? "text-emerald-400 font-bold cursor-not-allowed opacity-90"
+                    : "text-white focus:border-[#00F5D4]"
+                }`}
               />
+              {isFixedPricePackage && (
+                <p className="mt-1 text-[10px] text-gray-400">
+                  Variações de escopo ou valor são avaliadas exclusivamente
+                  pelo financeiro antes da cobrança de 50%.
+                </p>
+              )}
             </div>
 
             <div>
@@ -145,15 +201,15 @@ export const SalesHandoverModal = ({ isOpen, onClose, lead, onSuccess }) => {
                 <FileText className="w-3.5 h-3.5" />
                 {isCustomProject
                   ? "Briefing do Sistema *"
-                  : "Detalhes da Oferta *"}
+                  : "Detalhes da Oferta / Alinhamentos *"}
               </label>
               <textarea
                 required
                 rows={4}
                 placeholder={
                   isCustomProject
-                    ? "Descreva os requisitos..."
-                    : "Descreva os alinhamentos da venda..."
+                    ? "Descreva os requisitos, integrações e regras de negócio..."
+                    : "Descreva os alinhamentos combinados com o cliente..."
                 }
                 value={formData.offerDetails}
                 onChange={(e) =>

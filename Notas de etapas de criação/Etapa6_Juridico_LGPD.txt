@@ -1,0 +1,10 @@
+Etapa 6: Jurídico e LGPD
+
+Base legal, origem do dado, opt-out e política de privacidade
+- importante, mas ainda não foi criado
+
+Log de auditoria das exportações
+- importante, mas ainda não foi criado
+
+Termo anti-bypass (aceite com data, IP e hash) e termos do programa
+- importante, mas ainda não foi criado
