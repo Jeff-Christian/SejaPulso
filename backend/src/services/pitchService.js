@@ -1,4 +1,6 @@
 import OpenAI from "openai";
+import { tripBreaker, isQuotaError } from "./aiGuard.js";
+
 
 // Dicionário de pacote por grupo de CNAE (2 primeiros dígitos)
 export const CNAE_PACKAGE_MAP = {
@@ -28,7 +30,11 @@ const getOpenAI = () => {
     throw new Error("OPENAI_API_KEY não configurada no .env");
   }
   if (!openaiClient) {
-    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    openaiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      maxRetries: 1,
+      timeout: 20000,
+    });
   }
   return openaiClient;
 };
@@ -172,24 +178,46 @@ const normalizeAiContent = (raw) => {
   };
 };
 
-export const generateSmartPitch = async (companyData) => {
-  const cnaeGroup = String(companyData.cnaeCode || "")
+export const resolvePackage = (cnaeCode) => {
+  const group = String(cnaeCode || "")
     .replace(/\D/g, "")
     .substring(0, 2);
+  return CNAE_PACKAGE_MAP[group] || CNAE_PACKAGE_MAP.default;
+};
 
-  const mappedInfo = CNAE_PACKAGE_MAP[cnaeGroup] || CNAE_PACKAGE_MAP.default;
-
-  const cleanCompanyName = String(
-    companyData.tradeName || companyData.companyName || "",
-  )
+const cleanName = (companyData) =>
+  String(companyData.tradeName || companyData.companyName || "")
     .replace(/\d+/g, "")
     .replace(/\b(LTDA|MEI|ME|EPP|S\/A)\b/gi, "")
     .replace(/[\.\-\/]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
+// Fallback honesto: não finge ter acompanhado o trabalho da empresa
+export const buildFallbackPitch = (companyData) => {
+  const mappedInfo = resolvePackage(companyData.cnaeCode);
+  const name = cleanName(companyData);
+
+  return {
+    suggestedPackage: mappedInfo.package,
+    segmentLabel: mappedInfo.niche,
+    whyOffer: `Para empresas de ${mappedInfo.niche}, o ganho mais comum é facilitar o cliente a entender o que a empresa faz e chamar no WhatsApp sem atrito.`,
+    painPoints: [],
+    pitchScript: `Oi, pessoal da ${name}, tudo bem? Trabalho com sites para empresas de ${mappedInfo.niche} aqui em ${companyData.location}. Hoje, quando um cliente novo procura vocês na internet, ele consegue ver os serviços e chamar direto no WhatsApp?`,
+    openingQuestions: [],
+    objections: [],
+    avoid: [],
+    nextStep: "",
+  };
+};
+
+export const generateSmartPitch = async (companyData) => {
+  const mappedInfo = resolvePackage(companyData.cnaeCode);
+  const cleanCompanyName = cleanName(companyData);
+  let response = null; // se chegou a existir, a OpenAI já cobrou os tokens
+
   try {
-    const response = await getOpenAI().chat.completions.create({
+    response = await getOpenAI().chat.completions.create({
       model: "gpt-4o-mini",
       response_format: { type: "json_object" },
       temperature: 0.5,
@@ -210,25 +238,23 @@ export const generateSmartPitch = async (companyData) => {
       ],
     });
 
+    console.log("🧮 [AI usage]", response.usage); // tokens reais, para calcular o custo
+
     const aiContent = normalizeAiContent(
       JSON.parse(response.choices[0].message.content),
     );
 
-    return { suggestedPackage: mappedInfo.package, ...aiContent };
+    return { suggestedPackage: mappedInfo.package, ...aiContent, source: "ai" };
   } catch (error) {
     console.error("⚠️ [OpenAI Pitch Warning] Usando fallback:", error.message);
 
-    // Fallback honesto: não finge ter acompanhado o trabalho da empresa
+    // 429: pausa as chamadas (60 min se acabou o saldo, 2 min se foi limite de ritmo)
+    if (error?.status === 429) tripBreaker(isQuotaError(error) ? 60 : 2);
+
     return {
-      suggestedPackage: mappedInfo.package,
-      segmentLabel: mappedInfo.niche,
-      whyOffer: `Para empresas de ${mappedInfo.niche}, o ganho mais comum é facilitar o cliente a entender o que a empresa faz e chamar no WhatsApp sem atrito.`,
-      painPoints: [],
-      pitchScript: `Oi, pessoal da ${cleanCompanyName}, tudo bem? Trabalho com sites para empresas de ${mappedInfo.niche} aqui em ${companyData.location}. Hoje, quando um cliente novo procura vocês na internet, ele consegue ver os serviços e chamar direto no WhatsApp?`,
-      openingQuestions: [],
-      objections: [],
-      avoid: [],
-      nextStep: "",
+      ...buildFallbackPitch(companyData),
+      source: "fallback",
+      charged: response !== null,
     };
   }
 };

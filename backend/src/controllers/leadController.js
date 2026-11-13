@@ -2,7 +2,9 @@ import fetch from "node-fetch";
 import { prisma } from "../config/db.js";
 import OpenAI from "openai";
 
-import { generateSmartPitch } from "../services/pitchService.js";
+import { getFreePitch } from "../services/pitchGateway.js";
+import { toCompanyData } from "../services/brasilApiService.js";
+
 import { isValidCnpj, onlyDigits } from "../utils/brDocs.js";
 import { countActiveLeads, MAX_ACTIVE_LEADS } from "../services/leadPoolService.js";
 
@@ -406,27 +408,13 @@ export const consultCnpjAndCheckOwnership = async (req, res) => {
       existingLead && existingLead.affiliateId === currentAffiliateId;
 
     // 4. Dados "crus" para a IA (sem placeholders do tipo "não informado")
-    const companyData = {
-      cnpj: cleanCnpj,
-      companyName: brasilData.razao_social,
-      tradeName: brasilData.nome_fantasia || brasilData.razao_social,
-      cnaeCode: brasilData.cnae_fiscal,
-      cnaeDescription: brasilData.cnae_fiscal_descricao,
-      location: `${brasilData.municipio} / ${brasilData.uf}`,
-      officialPhone: brasilData.ddd_telefone_1 || brasilData.telefone_1,
-      officialEmail: brasilData.email,
-      openingDate: brasilData.data_inicio_atividade,
-      companySize: brasilData.porte,
-      capitalSocial: brasilData.capital_social,
-    };
+    const companyData = toCompanyData(brasilData, cleanCnpj);
 
     // 5. Inteligência de vendas (OpenAI). Não gasta chamada se o lead
     // já pertence a outro consultor. generateSmartPitch nunca lança erro:
     // em falha ele devolve um fallback.
-    const intelligence = isClaimedByAnother
-      ? null
-      : await generateSmartPitch(companyData);
-
+    const intelligence = isClaimedByAnother ? null : await getFreePitch(companyData);
+    
     // Retorna SEMPRE as informações da empresa, informando a situação da reserva
     return res.json({
       status: isClaimedByAnother ? "BLOCKED" : "AVAILABLE",

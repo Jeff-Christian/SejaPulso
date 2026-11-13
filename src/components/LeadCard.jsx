@@ -37,9 +37,16 @@ export const LeadCard = ({ leadData, onLeadClaimed }) => {
   const [claiming, setClaiming] = useState(false);
   const [openObjection, setOpenObjection] = useState(null);
 
+  const [aiData, setAiData] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [aiError, setAiError] = useState("");
+
   if (!leadData) return null;
 
-  const ai = leadData.intelligence;
+  const ai = aiData || leadData.intelligence;
+  const isAiContent = ai?.source === "ai" || ai?.source === "cache";
+  const canGenerate = !isAiContent && aiData?.source !== "fallback";
+
   const isBlocked =
     leadData.status === "BLOCKED" ||
     (leadData.isClaimed && !leadData.isOwnedByMe);
@@ -65,6 +72,19 @@ export const LeadCard = ({ leadData, onLeadClaimed }) => {
       alert(err.message || "Erro ao agendar este lead.");
     } finally {
       setClaiming(false);
+    }
+  };
+
+  const handleGenerateAi = async () => {
+    setGenerating(true);
+    setAiError("");
+    try {
+      const data = await apiRequest(`/leads/consult/${leadData.cnpj}/pitch`, "POST", null);
+      setAiData(data.intelligence);
+    } catch (err) {
+      setAiError(err.message || "Não foi possível gerar agora.");
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -179,10 +199,40 @@ export const LeadCard = ({ leadData, onLeadClaimed }) => {
                 {ai.segmentLabel ? ` · ${ai.segmentLabel}` : ""}
               </span>
             </div>
-            <span className="text-[10px] bg-[#00F5D4]/10 text-[#00F5D4] px-2.5 py-0.5 rounded font-mono border border-[#00F5D4]/30">
-              Sugestão baseada em dados públicos
-            </span>
+            {isAiContent ? (
+              <span className="text-[10px] bg-[#00F5D4]/10 text-[#00F5D4] px-2.5 py-0.5 rounded font-mono border border-[#00F5D4]/30">
+                Personalizado por IA · dados públicos
+              </span>
+            ) : (
+              <span className="text-[10px] bg-amber-500/10 text-amber-300 px-2.5 py-0.5 rounded font-mono border border-amber-500/30">
+                Abordagem padrão
+              </span>
+            )}
           </div>
+
+          {!isAiContent && (
+            <div className="bg-[#0B132B] border border-amber-500/30 rounded-xl p-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-[11px] text-amber-300 leading-relaxed">
+                  {ai.notice ||
+                    "Esta é a abordagem padrão do segmento. A versão personalizada por IA traz dores, objeções e perguntas específicas."}
+                </p>
+                {aiError && <p className="text-[11px] text-red-400">{aiError}</p>}
+              </div>
+
+              {canGenerate && (
+                <button
+                  type="button"
+                  onClick={handleGenerateAi}
+                  disabled={generating}
+                  className="shrink-0 bg-[#00F5D4] hover:bg-[#00d6b9] text-[#0B132B] font-bold px-4 py-2 rounded-xl text-[11px] transition flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{generating ? "Gerando..." : "Personalizar com IA"}</span>
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Por que ofertar */}
           <Section

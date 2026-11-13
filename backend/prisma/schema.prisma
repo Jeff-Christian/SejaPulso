@@ -190,3 +190,20 @@ model WebhookEvent {
 
   @@index([paymentId])
 }
+
+model PitchCache {
+  cnpj          String   @id
+  content       Json
+  model         String?
+  promptVersion String
+  createdAt     DateTime @default(now())
+}
+
+model AiUsage {
+  id    String @id @default(uuid())
+  day   String // AAAA-MM-DD (America/Sao_Paulo)
+  scope String // id do consultor ou "GLOBAL"
+  count Int    @default(0)
+
+  @@unique([day, scope])
+}

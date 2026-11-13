@@ -275,6 +275,7 @@ export const DashboardPage = () => {
               {leadResult && (
                 <div className="pt-2">
                   <LeadCard
+                    key={leadResult.cnpj}
                     leadData={leadResult}
                     onLeadClaimed={() => {
                       setLeadResult(null);

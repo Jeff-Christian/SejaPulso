@@ -16,6 +16,8 @@ import {
   tabulateLead,
 } from "../controllers/leadPoolController.js";
 
+import { generatePitch } from "../controllers/pitchController.js";
+
 import { authenticateToken, requireAdmin } from "../middlewares/authMiddleware.js";
 
 const router = Router();
@@ -41,6 +43,16 @@ const poolLimiter = rateLimit({
   message: { error: "Muitas requisições. Aguarde um instante." },
 });
 
+// Limite por consultor (não por IP), pesquisando o pitch da IA, que consome créditos
+const pitchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 5,
+  keyGenerator: (req) => req.user.id,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas gerações seguidas. Aguarde um minuto." },
+});
+
 router.get("/my-leads", getMyLeads);
 router.get("/consult/:cnpj", consultLimiter, consultCnpjAndCheckOwnership);
 router.get("/", requireAdmin, listLeads);
@@ -54,5 +66,8 @@ router.get("/pool/facets", poolLimiter, getPoolFacets);
 router.post("/pool/next", poolLimiter, nextLead);
 router.post("/pool/:id/claim", claimFromPool);
 router.post("/:id/tabulate", tabulateLead);
+
+// Rota para gerar pitch (abordagem) para o lead
+router.post("/consult/:cnpj/pitch", pitchLimiter, generatePitch);
 
 export default router;
