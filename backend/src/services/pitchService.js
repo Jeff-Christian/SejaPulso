@@ -197,13 +197,14 @@ const cleanName = (companyData) =>
 export const buildFallbackPitch = (companyData) => {
   const mappedInfo = resolvePackage(companyData.cnaeCode);
   const name = cleanName(companyData);
+  const place = companyData.location ? `aqui em ${companyData.location}` : "aqui na região";
 
   return {
     suggestedPackage: mappedInfo.package,
     segmentLabel: mappedInfo.niche,
     whyOffer: `Para empresas de ${mappedInfo.niche}, o ganho mais comum é facilitar o cliente a entender o que a empresa faz e chamar no WhatsApp sem atrito.`,
     painPoints: [],
-    pitchScript: `Oi, pessoal da ${name}, tudo bem? Trabalho com sites para empresas de ${mappedInfo.niche} aqui em ${companyData.location}. Hoje, quando um cliente novo procura vocês na internet, ele consegue ver os serviços e chamar direto no WhatsApp?`,
+    pitchScript: `Oi, pessoal da ${name}, tudo bem? Trabalho com sites para empresas de ${mappedInfo.niche} ${place}. Hoje, quando um cliente novo procura vocês na internet, ele consegue ver os serviços e chamar direto no WhatsApp?`,
     openingQuestions: [],
     objections: [],
     avoid: [],

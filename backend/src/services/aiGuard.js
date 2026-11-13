@@ -82,3 +82,23 @@ export const reserveAiCall = async (affiliateId) => {
     },
   };
 };
+
+// Quanto ainda dá para gerar hoje
+export const getAiQuota = async (affiliateId) => {
+  const day = today();
+  const [mine, global] = await Promise.all([
+    prisma.aiUsage.findUnique({ where: { day_scope: { day, scope: affiliateId } } }),
+    prisma.aiUsage.findUnique({ where: { day_scope: { day, scope: "GLOBAL" } } }),
+  ]);
+
+  const limit = intEnv("AI_DAILY_LIMIT_PER_USER", 30);
+  const used = mine?.count ?? 0;
+  const globalLeft = Math.max(0, intEnv("AI_DAILY_LIMIT_GLOBAL", 300) - (global?.count ?? 0));
+
+  return {
+    limit,
+    used,
+    remaining: Math.max(0, Math.min(limit - used, globalLeft)),
+    available: aiEnabled() && !breakerOpen(), // false com o interruptor desligado ou o disjuntor aberto
+  };
+};

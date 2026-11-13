@@ -8,6 +8,7 @@ import {
   handoverLead,
   getMyDeals,
 } from "../controllers/leadController.js";
+
 import {
   getPool, 
   getPoolFacets, 
@@ -16,7 +17,11 @@ import {
   tabulateLead,
 } from "../controllers/leadPoolController.js";
 
-import { generatePitch } from "../controllers/pitchController.js";
+import { 
+  generatePitch, 
+  getLeadPitch, 
+  getQuota 
+} from "../controllers/pitchController.js";
 
 import { authenticateToken, requireAdmin } from "../middlewares/authMiddleware.js";
 
@@ -69,5 +74,7 @@ router.post("/:id/tabulate", tabulateLead);
 
 // Rota para gerar pitch (abordagem) para o lead
 router.post("/consult/:cnpj/pitch", pitchLimiter, generatePitch);
+router.get("/ai-quota", getQuota);
+router.get("/:id/pitch", getLeadPitch);
 
 export default router;

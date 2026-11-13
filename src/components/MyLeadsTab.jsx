@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { apiRequest } from "../services/api";
-import { Building2, Phone, RefreshCw, CalendarClock } from "lucide-react";
+
+import { 
+  Building2, 
+  Phone, 
+  RefreshCw, 
+  CalendarClock, 
+  Sparkles 
+} from "lucide-react"; 
+import { PitchModal } from "./PitchModal";
+
 import { SalesHandoverModal } from "./SalesHandoverModal";
 import { LeadTabulation, OUTCOME_LABEL } from "./LeadTabulation";
 
@@ -16,6 +25,7 @@ export const MyLeadsTab = () => {
   const [loading, setLoading] = useState(true);
   const [isHandoverModalOpen, setIsHandoverModalOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState(null);
+  const [pitchLead, setPitchLead] = useState(null);
 
   const fetchMyLeads = useCallback(async () => {
     setLoading(true);
@@ -113,17 +123,27 @@ export const MyLeadsTab = () => {
                   </p>
                 )}
 
-                {phoneDigits && (
-                  <a
-                    href={`https://wa.me/55${phoneDigits}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full bg-[#1E2D50] hover:bg-[#253760] text-white py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+                <div className="flex gap-2">
+                  {phoneDigits && (
+                    <a
+                      href={`https://wa.me/55${phoneDigits}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 bg-[#1E2D50] hover:bg-[#253760] text-white py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+                    >
+                      <Phone className="w-3.5 h-3.5 text-[#00F5D4]" />
+                      <span>WhatsApp</span>
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPitchLead(lead)}
+                    className="flex-1 bg-[#1E2D50] hover:bg-[#253760] text-white py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
                   >
-                    <Phone className="w-3.5 h-3.5 text-[#00F5D4]" />
-                    <span>Abrir WhatsApp</span>
-                  </a>
-                )}
+                    <Sparkles className="w-3.5 h-3.5 text-[#00F5D4]" />
+                    <span>Ver abordagem</span>
+                  </button>
+                </div>
 
                 <div className="pt-3 border-t border-[#1E2D50]">
                   <LeadTabulation lead={lead} onDone={fetchMyLeads} onReadyToClose={openHandover} />
@@ -140,6 +160,13 @@ export const MyLeadsTab = () => {
         lead={selectedLead}
         onSuccess={fetchMyLeads}
       />
+
+      <PitchModal 
+        lead={pitchLead} 
+        isOpen={!!pitchLead} 
+        onClose={() => setPitchLead(null)} 
+      />
+
     </div>
   );
 };
