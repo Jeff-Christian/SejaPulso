@@ -12,7 +12,6 @@ import {
   AlertTriangle,
   UserX,
 } from "lucide-react";
-import { OUTCOME_LABEL } from "./LeadTabulation";
 
 const STATUS_LABEL = {
   LEAD_REGISTERED: "Cadastrado",
@@ -34,7 +33,18 @@ const OUTCOME_ORDER = [
   "AWAITING_CLOSING",
 ];
 
-const outcomeLabel = (o) => OUTCOME_LABEL?.[o] || o || "Sem contato";
+// Mapa completo (o OUTCOME_LABEL do LeadTabulation não tem NOT_INTERESTED nem INVALID_NUMBER)
+const OUTCOME_TEXT = {
+  NO_ANSWER: "Não atendeu",
+  INVALID_NUMBER: "Número inválido",
+  CALL_BACK: "Retornar depois",
+  CONTACTED: "Contato realizado",
+  MEETING_SCHEDULED: "Reunião agendada",
+  NOT_INTERESTED: "Sem interesse",
+  AWAITING_CLOSING: "Aguardando fechamento",
+};
+
+const outcomeLabel = (o) => OUTCOME_TEXT[o] || o || "Sem contato";
 
 const fmt = (d) =>
   d
@@ -46,6 +56,16 @@ const fmt = (d) =>
         minute: "2-digit",
       })
     : "—";
+
+const fmtDay = (d) => new Date(d).toLocaleDateString("pt-BR");
+
+// Situação de um lead sem consultor
+const poolState = (l) => {
+  if (l.status === "DISCARDED") return { text: "Descartado (nº inválido)", cls: "text-orange-400" };
+  if (l.availableAt && new Date(l.availableAt) > new Date())
+    return { text: `Em carência até ${fmtDay(l.availableAt)}`, cls: "text-amber-400" };
+  return { text: "Livre", cls: "text-gray-500" };
+};
 
 const inputCls =
   "bg-[#0B132B] border border-[#1E2D50] text-gray-200 text-xs rounded-xl px-3 py-2 outline-none focus:border-[#00F5D4]/60";
@@ -83,8 +103,8 @@ const LeadDetailDrawer = ({ leadId, onClose, onChanged }) => {
     setNotice("");
     setError("");
     try {
-      await apiRequest(`/admin/leads/${leadId}/contact`, "PATCH", { contactPhone: phone });
-      setNotice("Telefone atualizado.");
+      const r = await apiRequest(`/admin/leads/${leadId}/contact`, "PATCH", { contactPhone: phone });
+      setNotice(r?.message || "Telefone atualizado.");
       await load();
       onChanged?.();
     } catch (err) {
@@ -195,7 +215,7 @@ const LeadDetailDrawer = ({ leadId, onClose, onChanged }) => {
               </div>
               {lead.lastOutcome === "INVALID_NUMBER" && (
                 <p className="text-[11px] text-amber-400">
-                  Marcado como número inválido. Ao salvar um novo telefone, o lead sai dessa fila.
+                  Descartado por número inválido. Ao salvar um novo telefone, o lead volta ao pool e fica livre para reserva.
                 </p>
               )}
             </section>
@@ -214,8 +234,8 @@ const LeadDetailDrawer = ({ leadId, onClose, onChanged }) => {
                   </p>
                 </>
               ) : (
-                <p className="text-gray-400 flex items-center gap-1.5">
-                  <UserX className="w-3.5 h-3.5" /> Livre no pool
+                <p className={`flex items-center gap-1.5 ${poolState(lead).cls}`}>
+                  <UserX className="w-3.5 h-3.5" /> {poolState(lead).text}
                 </p>
               )}
               {lead.deal && (
@@ -278,6 +298,7 @@ export const AdminLeadsTab = () => {
     cnae: "",
   });
   const [openId, setOpenId] = useState(null);
+  const [expiring, setExpiring] = useState(false);
 
   // debounce da busca
   useEffect(() => {
@@ -332,6 +353,32 @@ export const AdminLeadsTab = () => {
     fetchList();
   };
 
+  // Libera reservas sem nenhuma tabulação: simula primeiro e só executa com confirmação
+  const runExpiry = async () => {
+    setExpiring(true);
+    setError("");
+    try {
+      const sim = await apiRequest("/admin/leads/expire-stale?dryRun=true", "POST", {});
+      if (!sim.found) {
+        window.alert(`Nenhuma reserva parada há ${sim.days}+ dias sem tabulação.`);
+        return;
+      }
+      const names = sim.preview.slice(0, 5).map((l) => `• ${l.companyName}`).join("\n");
+      const more = sim.found > 5 ? `\n... e mais ${sim.found - 5}` : "";
+      const ok = window.confirm(
+        `${sim.found} reserva(s) sem nenhuma tabulação há ${sim.days}+ dias:\n\n${names}${more}\n\nLiberar de volta ao pool agora?`,
+      );
+      if (!ok) return;
+      const done = await apiRequest("/admin/leads/expire-stale", "POST", {});
+      window.alert(`${done.released} lead(s) liberado(s) para o pool.`);
+      refreshAll();
+    } catch (err) {
+      setError(err.message || "Erro ao verificar reservas paradas.");
+    } finally {
+      setExpiring(false);
+    }
+  };
+
   const chip = (key, label, count) => {
     const active = filters.outcome === key;
     return (
@@ -359,16 +406,25 @@ export const AdminLeadsTab = () => {
           </h2>
           <p className="text-xs text-gray-400 mt-1">
             {stats
-              ? `${stats.total} leads · ${stats.free} livres no pool · ${stats.invalid} com número inválido`
+              ? `${stats.total} leads · ${stats.free} livres no pool · ${stats.cooldown ?? 0} em carência · ${stats.invalid} com número inválido`
               : "Carregando base..."}
           </p>
         </div>
-        <button
-          onClick={refreshAll}
-          className="p-2 bg-[#0B132B] border border-[#1E2D50] text-gray-300 hover:text-[#00F5D4] rounded-xl transition"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={runExpiry}
+            disabled={expiring}
+            className="px-3 py-2 bg-[#0B132B] border border-[#1E2D50] text-gray-300 hover:text-[#00F5D4] rounded-xl text-[11px] font-bold transition disabled:opacity-50"
+          >
+            {expiring ? "Verificando..." : "Liberar reservas paradas"}
+          </button>
+          <button
+            onClick={refreshAll}
+            className="p-2 bg-[#0B132B] border border-[#1E2D50] text-gray-300 hover:text-[#00F5D4] rounded-xl transition"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
 
       {/* Chips por resultado do último contato */}
@@ -472,7 +528,7 @@ export const AdminLeadsTab = () => {
                     {l.affiliate ? (
                       l.affiliate.responsible || l.affiliate.companyName
                     ) : (
-                      <span className="text-gray-500">Livre</span>
+                      <span className={poolState(l).cls}>{poolState(l).text}</span>
                     )}
                   </td>
                   <td className="py-3 px-4">

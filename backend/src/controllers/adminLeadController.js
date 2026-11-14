@@ -97,6 +97,7 @@ export const getAdminLeads = async (req, res) => {
           lastActivityAt: true,
           nextActionAt: true,
           claimedAt: true,
+          availableAt: true,
           affiliate: { select: { id: true, companyName: true, responsible: true } },
         },
       }),
@@ -118,11 +119,14 @@ export const getAdminLeads = async (req, res) => {
 // GET /admin/leads/stats  (contadores para os chips do topo)
 export const getAdminLeadStats = async (req, res) => {
   try {
-    const [byOutcome, byStatus, total, free, invalid] = await Promise.all([
+    const [byOutcome, byStatus, total, free, cooldown, invalid] = await Promise.all([
       prisma.lead.groupBy({ by: ["lastOutcome"], _count: { _all: true } }),
       prisma.lead.groupBy({ by: ["status"], _count: { _all: true } }),
       prisma.lead.count(),
-      prisma.lead.count({ where: { affiliateId: null } }),
+      // livres de verdade: no pool e fora da carência
+      prisma.lead.count({ where: { status: "POOL", affiliateId: null, availableAt: { lte: new Date() } } }),
+      // no pool, mas ainda em carência (recusaram há menos de 90 dias)
+      prisma.lead.count({ where: { status: "POOL", affiliateId: null, availableAt: { gt: new Date() } } }),
       prisma.lead.count({ where: { lastOutcome: "INVALID_NUMBER" } }),
     ]);
 
@@ -133,7 +137,7 @@ export const getAdminLeadStats = async (req, res) => {
     const statuses = {};
     for (const row of byStatus) statuses[row.status] = row._count._all;
 
-    return res.json({ total, free, invalid, outcomes, statuses });
+    return res.json({ total, free, cooldown, invalid, outcomes, statuses });
   } catch (error) {
     console.error("❌ Erro ao calcular stats de leads:", error);
     return res.status(500).json({ error: "Erro ao calcular estatísticas." });
@@ -229,21 +233,32 @@ export const updateLeadContact = async (req, res) => {
 
     const current = await prisma.lead.findUnique({
       where: { id },
-      select: { id: true, lastOutcome: true },
+      select: { id: true, lastOutcome: true, status: true },
     });
     if (!current) return res.status(404).json({ error: "Lead não encontrado." });
+
+    // A tabulação "número inválido" deixa o lead como DISCARDED, fora do pool.
+    // Telefone corrigido pelo Admin: ele volta ao pool, livre na hora.
+    const backToPool = current.status === "DISCARDED" && current.lastOutcome === "INVALID_NUMBER";
 
     const updated = await prisma.lead.update({
       where: { id },
       data: {
         contactPhone: digits,
-        // telefone corrigido: sai da fila de "número inválido"
-        ...(current.lastOutcome === "INVALID_NUMBER" ? { lastOutcome: null } : {}),
+        ...(backToPool
+          ? { status: "POOL", lastOutcome: null, availableAt: new Date() }
+          : {}),
       },
-      select: { id: true, contactPhone: true, lastOutcome: true },
+      select: { id: true, contactPhone: true, lastOutcome: true, status: true },
     });
 
-    return res.json({ message: "Telefone atualizado.", lead: updated });
+    return res.json({
+      message: backToPool
+        ? "Telefone atualizado e lead devolvido ao pool."
+        : "Telefone atualizado.",
+      backToPool,
+      lead: updated,
+    });
   } catch (error) {
     console.error("❌ Erro ao atualizar contato do lead:", error);
     return res.status(500).json({ error: "Erro ao atualizar o contato." });
