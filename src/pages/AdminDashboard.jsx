@@ -4,6 +4,7 @@ import { Sidebar } from "../components/Sidebar";
 import { AddAffiliateModal } from "../components/AddAffiliateModal";
 import { EditAffiliateModal } from "../components/EditAffiliateModal";
 import { ImportLeadsTab } from "../components/ImportLeadsTab";
+import { AdminLeadsTab } from "../components/AdminLeadsTab";
 import {
   ShieldCheck,
   Users,
@@ -467,6 +468,9 @@ export const AdminDashboard = () => {
           
           {/* ABA 4: IMPORTAÇÃO DE LEADS */}
           {activeTab === "admin_pool" && <ImportLeadsTab />}
+
+          {/* ABA 5: LEADS & FICHA 360° */}
+          {activeTab === "admin_leads" && <AdminLeadsTab />}
         </main>
       </div>
 

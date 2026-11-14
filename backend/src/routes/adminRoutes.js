@@ -18,6 +18,9 @@ import {
   uploadSpreadsheet, 
   importLeads 
 } from "../controllers/leadImportController.js";
+import {
+  getAdminLeads, getAdminLeadStats, getAdminLeadDetail, updateLeadContact, runLeadExpiry,
+} from "../controllers/adminLeadController.js";
 
 
 const router = Router();
@@ -75,5 +78,11 @@ router.put("/deals/:dealId", updateDealDetails);
 
 // Rotas de importação de leads
 router.post("/leads/import", authenticateToken, requireAdmin, uploadSpreadsheet, importLeads);
+router.get("/leads", getAdminLeads);
+router.get("/leads/stats", getAdminLeadStats);
+router.post("/leads/expire-stale", runLeadExpiry);
+router.get("/leads/:id", getAdminLeadDetail);
+router.patch("/leads/:id/contact", updateLeadContact);
+
 
 export default router;

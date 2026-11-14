@@ -8,7 +8,8 @@ import {
   ShieldCheck, 
   Users, 
   DollarSign, 
-  UserPlus 
+  UserPlus,
+  ClipboardList
 } from "lucide-react";
 import LogoPulso from "../assets/SejaPulsoLogo.png";
 import { getAuthUser } from "../services/api"; // 👈 Importa a busca segura em memória
@@ -33,6 +34,7 @@ export const Sidebar = ({ activeTab, onSelectTab, onOpenAddModal }) => {
     { id: "pending", label: "Aprovações Pendentes", icon: ShieldCheck },
     { id: "affiliates_list", label: "Consultores Ativos", icon: Users },
     { id: "admin_pool", label: "Gestão Pool B2B", icon: Building2 },
+    { id: "admin_leads", label: "Leads & Fichas", icon: ClipboardList },
     { id: "financial", label: "Financeiro & Asaas", icon: DollarSign },
   ];
 
