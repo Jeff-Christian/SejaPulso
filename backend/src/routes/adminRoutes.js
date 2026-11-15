@@ -14,14 +14,18 @@ import {
   createAsaasCharge,
   updateDealDetails,
 } from "../controllers/adminController.js";
-import { 
-  uploadSpreadsheet, 
-  importLeads 
+import {
+  uploadSpreadsheet,
+  importLeads,
 } from "../controllers/leadImportController.js";
 import {
-  getAdminLeads, getAdminLeadStats, getAdminLeadDetail, updateLeadContact, runLeadExpiry,
+  getAdminLeads,
+  getAdminLeadStats,
+  getAdminLeadDetail,
+  updateLeadContact,
+  runLeadExpiry,
 } from "../controllers/adminLeadController.js";
-
+import { createBalanceCharge } from "../controllers/DealBalanceController.js";
 
 const router = Router();
 
@@ -72,17 +76,23 @@ router.patch("/affiliates/:id/status", async (req, res) => {
 // Rota ÚNICA de Vendas Pendentes (executa o getPendingDeals do controller)
 router.get("/deals/pending", getPendingDeals);
 
-// Rotas de criação de cobrança e atualização de termos da venda
+// Rotas de criação de cobrança (sinal e saldo) e atualização de termos da venda
 router.post("/deals/:dealId/create-charge", createAsaasCharge);
+router.post("/deals/:dealId/create-balance-charge", createBalanceCharge);
 router.put("/deals/:dealId", updateDealDetails);
 
 // Rotas de importação de leads
-router.post("/leads/import", authenticateToken, requireAdmin, uploadSpreadsheet, importLeads);
+router.post(
+  "/leads/import",
+  authenticateToken,
+  requireAdmin,
+  uploadSpreadsheet,
+  importLeads,
+);
 router.get("/leads", getAdminLeads);
 router.get("/leads/stats", getAdminLeadStats);
 router.post("/leads/expire-stale", runLeadExpiry);
 router.get("/leads/:id", getAdminLeadDetail);
 router.patch("/leads/:id/contact", updateLeadContact);
-
 
 export default router;

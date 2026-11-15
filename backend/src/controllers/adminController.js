@@ -9,17 +9,14 @@ import {
   getAsaasPaymentStatus,
 } from "../services/asaasService.js";
 
-import { 
-  parseBRLToCents, 
-  centsToReais, 
-  splitDeposit, 
-  formatBRL 
+import {
+  parseBRLToCents,
+  centsToReais,
+  splitDeposit,
+  formatBRL,
 } from "../utils/money.js";
 
-import { 
-  isValidCnpj, 
-  onlyDigits 
-} from "../utils/brDocs.js";
+import { isValidCnpj, onlyDigits } from "../utils/brDocs.js";
 
 const CHARGE_LOCK = "CREATING";
 const PACKAGES = ["START", "STANDARD", "PRO", "ENTERPRISE"];
@@ -116,7 +113,7 @@ export const getAffiliateDetails = async (req, res) => {
         deals: {
           include: {
             lead: true,
-            commission: true,
+            commissions: true, // ✅ Atualizado de commission para commissions
           },
         },
         commissions: true,
@@ -127,22 +124,29 @@ export const getAffiliateDetails = async (req, res) => {
       return res.status(404).json({ error: "Consultor não encontrado." });
     }
 
-    // Cálculo dinâmico de saldos liberados e pendentes
-    const balanceAvailable = affiliate.commissions
-      .filter((c) => c.status === "APPROVED" || c.status === "PAID")
-      .reduce((acc, c) => acc + c.amount, 0);
+    // ✅ Cálculo dinâmico usando amountCents (dividido por 100 ao exibir)
+    const balanceAvailable =
+      affiliate.commissions
+        .filter((c) => c.status === "APPROVED")
+        .reduce((acc, c) => acc + (c.amountCents || 0), 0) / 100;
 
-    const balancePending = affiliate.commissions
-      .filter(
-        (c) =>
-          c.status === "WAITING_INVOICE" || c.status === "INVOICE_SUBMITTED",
-      )
-      .reduce((acc, c) => acc + c.amount, 0);
+    const balancePaid =
+      affiliate.commissions
+        .filter((c) => c.status === "PAID")
+        .reduce((acc, c) => acc + (c.amountCents || 0), 0) / 100;
+
+    const balancePending =
+      affiliate.commissions
+        .filter((c) =>
+          ["HELD", "WAITING_INVOICE", "INVOICE_SUBMITTED"].includes(c.status),
+        )
+        .reduce((acc, c) => acc + (c.amountCents || 0), 0) / 100;
 
     return res.json({
       ...affiliate,
       financialSummary: {
         balanceAvailable: `R$ ${balanceAvailable.toFixed(2)}`,
+        balancePaid: `R$ ${balancePaid.toFixed(2)}`,
         balancePending: `R$ ${balancePending.toFixed(2)}`,
       },
     });
@@ -243,12 +247,9 @@ export const getPendingDeals = async (req, res) => {
   try {
     const deals = await prisma.deal.findMany({
       where: {
+        // ✅ Atualizado para excluir apenas vendas encerradas/canceladas/estornadas
         status: {
-          in: [
-            "WAITING_FINANCIAL_VALIDATION",
-            "WAITING_PRICING_SLA",
-            "WAITING_INTERNAL_REVIEW",
-          ],
+          notIn: ["PAID_IN_FULL", "CANCELLED", "REFUNDED"],
         },
       },
       include: {
@@ -262,17 +263,28 @@ export const getPendingDeals = async (req, res) => {
           },
         },
         lead: true,
-        commission: true,
+        commissions: true, // ✅ Atualizado de commission para commissions
       },
       orderBy: { closedAt: "desc" },
     });
 
     const synchronizedDeals = await Promise.all(
       deals.map(async (deal) => {
-      // ignora deals cuja cobrança está sendo criada agora
-      if (!deal.asaasPaymentId || deal.asaasPaymentId === CHARGE_LOCK) {
-        return deal;
-      }
+        // ✅ Checagem no Asaas roda apenas nos status que ainda aguardam emissão/pagamento do sinal
+        if (
+          ![
+            "WAITING_FINANCIAL_VALIDATION",
+            "WAITING_PRICING_SLA",
+            "AWAITING_DEPOSIT",
+          ].includes(deal.status)
+        ) {
+          return deal;
+        }
+
+        // ignora deals cuja cobrança está sendo criada agora
+        if (!deal.asaasPaymentId || deal.asaasPaymentId === CHARGE_LOCK) {
+          return deal;
+        }
 
         console.log(
           `📡 Consultando status no Asaas para a cobrança: ${deal.asaasPaymentId}`,
@@ -288,9 +300,7 @@ export const getPendingDeals = async (req, res) => {
           // Se a cobrança não existe mais ou foi marcada como deletada/cancelada
           const gone = check.status === "DELETED" || check.deleted === true;
 
-          if (
-            gone
-          ) {
+          if (gone) {
             console.log(
               `⚠️ Cobrança ${deal.asaasPaymentId} foi REMOVIDA/CANCELADA no Asaas. Limpando no Neon.tech...`,
             );
@@ -337,15 +347,22 @@ export const createAsaasCharge = async (req, res) => {
       where: { id: dealId },
       include: { lead: true },
     });
-    if (!deal) return res.status(404).json({ error: "Venda/Deal não encontrada." });
+    if (!deal)
+      return res.status(404).json({ error: "Venda/Deal não encontrada." });
 
     if (deal.asaasPaymentId) {
-      return res.status(409).json({ error: "Este deal já possui uma cobrança emitida." });
+      return res
+        .status(409)
+        .json({ error: "Este deal já possui uma cobrança emitida." });
     }
 
     const totalCents = deal.totalCents ?? parseBRLToCents(deal.finalValue);
     if (!totalCents) {
-      return res.status(400).json({ error: "Valor final da venda inválido para geração de cobrança." });
+      return res
+        .status(400)
+        .json({
+          error: "Valor final da venda inválido para geração de cobrança.",
+        });
     }
     const { deposit } = splitDeposit(totalCents);
 
@@ -355,7 +372,11 @@ export const createAsaasCharge = async (req, res) => {
       data: { asaasPaymentId: CHARGE_LOCK },
     });
     if (lock.count === 0) {
-      return res.status(409).json({ error: "Já existe uma cobrança sendo emitida para este deal." });
+      return res
+        .status(409)
+        .json({
+          error: "Já existe uma cobrança sendo emitida para este deal.",
+        });
     }
     locked = true;
 
@@ -380,7 +401,7 @@ export const createAsaasCharge = async (req, res) => {
         asaasPaymentId: paymentId,
         paymentUrl,
         totalCents,
-        status: "WAITING_FINANCIAL_VALIDATION",
+        status: "AWAITING_DEPOSIT", // ✅ Atualizado de WAITING_FINANCIAL_VALIDATION para AWAITING_DEPOSIT
       },
     });
     locked = false;
@@ -394,15 +415,23 @@ export const createAsaasCharge = async (req, res) => {
   } catch (error) {
     if (createdPaymentId) {
       // Cobrança já existe no Asaas mas não foi gravada: mantém a trava e avisa
-      console.error(`🚨 Cobrança ${createdPaymentId} criada no Asaas, mas falhou ao gravar no deal ${dealId}:`, error);
+      console.error(
+        `🚨 Cobrança ${createdPaymentId} criada no Asaas, mas falhou ao gravar no deal ${dealId}:`,
+        error,
+      );
     } else if (locked) {
       await prisma.deal
-        .updateMany({ where: { id: dealId, asaasPaymentId: CHARGE_LOCK }, data: { asaasPaymentId: null } })
+        .updateMany({
+          where: { id: dealId, asaasPaymentId: CHARGE_LOCK },
+          data: { asaasPaymentId: null },
+        })
         .catch(() => {});
     }
     console.error("❌ [Asaas Charge Error]:", error.message);
     return res.status(500).json({
-      error: error.message || "Erro interno ao processar cobrança de sinal no Asaas.",
+      error:
+        error.message ||
+        "Erro interno ao processar cobrança de sinal no Asaas.",
     });
   }
 };
@@ -410,15 +439,23 @@ export const createAsaasCharge = async (req, res) => {
 // Atualizar informações da venda/deal pelo Admin (botão "Salvar Alterações")
 export const updateDealDetails = async (req, res) => {
   const { dealId } = req.params;
-  const { selectedPackage, finalValue, offerDetails, leadCompanyName, leadCnpj } = req.body;
+  const {
+    selectedPackage,
+    finalValue,
+    offerDetails,
+    leadCompanyName,
+    leadCnpj,
+  } = req.body;
 
   try {
     const current = await prisma.deal.findUnique({ where: { id: dealId } });
-    if (!current) return res.status(404).json({ error: "Venda não encontrada." });
+    if (!current)
+      return res.status(404).json({ error: "Venda não encontrada." });
 
     if (current.asaasPaymentId) {
       return res.status(409).json({
-        error: "A cobrança já foi emitida. Os termos não podem mais ser alterados por aqui.",
+        error:
+          "A cobrança já foi emitida. Os termos não podem mais ser alterados por aqui.",
       });
     }
 
@@ -428,7 +465,9 @@ export const updateDealDetails = async (req, res) => {
 
     const totalCents = parseBRLToCents(finalValue);
     if (!totalCents) {
-      return res.status(400).json({ error: "Valor inválido. Use algo como 1500 ou 1.500,00." });
+      return res
+        .status(400)
+        .json({ error: "Valor inválido. Use algo como 1500 ou 1.500,00." });
     }
 
     const cleanCnpj = leadCnpj ? onlyDigits(leadCnpj) : null;
@@ -460,10 +499,15 @@ export const updateDealDetails = async (req, res) => {
       return deal;
     });
 
-    return res.json({ message: "Dados da venda atualizados com sucesso!", deal: updatedDeal });
+    return res.json({
+      message: "Dados da venda atualizados com sucesso!",
+      deal: updatedDeal,
+    });
   } catch (error) {
     if (error.code === "P2002") {
-      return res.status(409).json({ error: "Este CNPJ já está cadastrado em outro lead." });
+      return res
+        .status(409)
+        .json({ error: "Este CNPJ já está cadastrado em outro lead." });
     }
     console.error("❌ Erro ao atualizar dados da venda no Admin:", error);
     return res.status(500).json({ error: "Erro ao atualizar dados da venda." });

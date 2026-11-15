@@ -6,7 +6,10 @@ import { getFreePitch } from "../services/pitchGateway.js";
 import { toCompanyData } from "../services/brasilApiService.js";
 
 import { isValidCnpj, onlyDigits } from "../utils/brDocs.js";
-import { countActiveLeads, MAX_ACTIVE_LEADS } from "../services/leadPoolService.js";
+import {
+  countActiveLeads,
+  MAX_ACTIVE_LEADS,
+} from "../services/leadPoolService.js";
 
 // 1. Repassar Lead para Vendas / Pós-Vendas (Handover)
 export const handoverLead = async (req, res) => {
@@ -25,7 +28,9 @@ export const handoverLead = async (req, res) => {
   });
 
   if (!affiliateId) {
-    console.error("❌ [Handover Error]: Usuário não identificado no Token JWT.");
+    console.error(
+      "❌ [Handover Error]: Usuário não identificado no Token JWT.",
+    );
     return res
       .status(401)
       .json({ error: "Sessão inválida. Usuário não identificado." });
@@ -34,17 +39,22 @@ export const handoverLead = async (req, res) => {
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
 
   if (!lead || lead.affiliateId !== affiliateId) {
-    return res.status(404).json({ error: "Lead não encontrado na sua carteira." });
+    return res
+      .status(404)
+      .json({ error: "Lead não encontrado na sua carteira." });
   }
 
   if (["WAITING_INTERNAL_REVIEW", "DEAL_CLOSED"].includes(lead.status)) {
-    return res.status(409).json({ error: "Este lead já foi enviado para fechamento." });
+    return res
+      .status(409)
+      .json({ error: "Este lead já foi enviado para fechamento." });
   }
 
   const existingDeal = await prisma.deal.findUnique({ where: { leadId } });
   if (existingDeal?.asaasPaymentId) {
     return res.status(409).json({
-      error: "Já existe uma cobrança emitida para esta venda. Fale com o financeiro para alterações.",
+      error:
+        "Já existe uma cobrança emitida para esta venda. Fale com o financeiro para alterações.",
     });
   }
 
@@ -128,7 +138,9 @@ export const claimLead = async (req, res) => {
   const { cnpj, companyName, contactName } = req.body;
   const affiliateId = req.user?.id;
   if (!affiliateId) {
-    return res.status(401).json({ error: "Sessão inválida. Usuário não identificado." });
+    return res
+      .status(401)
+      .json({ error: "Sessão inválida. Usuário não identificado." });
   }
 
   const cleanCnpj = onlyDigits(cnpj);
@@ -152,7 +164,11 @@ export const claimLead = async (req, res) => {
         status: "POOL",
         availableAt: { lte: new Date() },
       },
-      data: { affiliateId, status: "COMMERCIAL_CONTACT", claimedAt: new Date() },
+      data: {
+        affiliateId,
+        status: "COMMERCIAL_CONTACT",
+        claimedAt: new Date(),
+      },
     });
 
     if (taken.count === 1) {
@@ -161,11 +177,16 @@ export const claimLead = async (req, res) => {
     }
 
     // 2) Não conseguiu: descobre o motivo
-    const existing = await prisma.lead.findUnique({ where: { cnpj: cleanCnpj } });
+    const existing = await prisma.lead.findUnique({
+      where: { cnpj: cleanCnpj },
+    });
 
     if (existing) {
       if (existing.affiliateId === affiliateId) {
-        return res.json({ message: "Este lead já está na sua carteira.", lead: existing });
+        return res.json({
+          message: "Este lead já está na sua carteira.",
+          lead: existing,
+        });
       }
       return res.status(409).json({
         error: existing.affiliateId
@@ -190,7 +211,11 @@ export const claimLead = async (req, res) => {
       return res.json({ message: "Lead reservado com sucesso!", lead });
     } catch (e) {
       if (e.code === "P2002") {
-        return res.status(409).json({ error: "Este CNPJ acabou de ser reservado por outro consultor." });
+        return res
+          .status(409)
+          .json({
+            error: "Este CNPJ acabou de ser reservado por outro consultor.",
+          });
       }
       throw e;
     }
@@ -258,7 +283,9 @@ export const consultCnpjAndCheckOwnership = async (req, res) => {
     const companyData = toCompanyData(brasilData, cleanCnpj);
 
     // 5. Inteligência de vendas (custo zero: cache ou fallback do serviceCatalog)
-    const intelligence = isClaimedByAnother ? null : await getFreePitch(companyData);
+    const intelligence = isClaimedByAnother
+      ? null
+      : await getFreePitch(companyData);
 
     return res.json({
       status: isClaimedByAnother ? "BLOCKED" : "AVAILABLE",
@@ -310,10 +337,14 @@ export const listLeads = async (req, res) => {
 export const getMyDeals = async (req, res) => {
   const affiliateId = req.user?.id || req.user?.affiliateId;
 
-  console.log(`🔍 [getMyDeals] Buscando vendas/handovers para o consultor ID: ${affiliateId}`);
+  console.log(
+    `🔍 [getMyDeals] Buscando vendas/handovers para o consultor ID: ${affiliateId}`,
+  );
 
   if (!affiliateId) {
-    return res.status(401).json({ error: "Sessão inválida. Usuário não identificado." });
+    return res
+      .status(401)
+      .json({ error: "Sessão inválida. Usuário não identificado." });
   }
 
   try {
@@ -330,15 +361,20 @@ export const getMyDeals = async (req, res) => {
             status: true,
           },
         },
-        commission: true,
+        commissions: true, // 👈 Alterado de 'commission: true' para 'commissions: true'
       },
       orderBy: { closedAt: "desc" },
     });
 
-    console.log(`✅ [getMyDeals] ${deals.length} vendas encontradas com sucesso para o consultor.`);
+    console.log(
+      `✅ [getMyDeals] ${deals.length} vendas encontradas com sucesso.`,
+    );
     return res.json(deals);
   } catch (error) {
-    console.error("❌ [Backend Error] Falha ao buscar vendas do consultor:", error);
+    console.error(
+      "❌ [Backend Error] Falha ao buscar vendas do consultor:",
+      error,
+    );
     return res.status(500).json({
       error: "Erro ao carregar vendas e comissões.",
       details: error.message,

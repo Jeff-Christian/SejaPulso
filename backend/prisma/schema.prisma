@@ -17,16 +17,6 @@ enum AffiliateStatus {
   BLOCKED
 }
 
-enum LeadStatus {
-  LEAD_REGISTERED
-  POOL                      
-  COMMERCIAL_CONTACT
-  WAITING_INTERNAL_REVIEW
-  PROPOSAL_SENT
-  DEAL_CLOSED
-  DISCARDED
-}
-
 enum ContactOutcome {
   NO_ANSWER
   INVALID_NUMBER
@@ -37,12 +27,42 @@ enum ContactOutcome {
   AWAITING_CLOSING
 }
 
+model Commission {
+  id              String           @id @default(uuid())
+  appliedRate     Float
+  amount      Float?
+  status          CommissionStatus @default(WAITING_INVOICE)
+  invoiceUrl      String?
+  invoiceUploaded DateTime?
+  paidAt          DateTime?
+
+  dealId      String
+  deal            Deal             @relation(fields: [dealId], references: [id])
+  
+  affiliateId     String
+  affiliate       Affiliate        @relation(fields: [affiliateId], references: [id])
+
+  kind         CommissionKind @default(DEPOSIT)
+  paymentId    String?        @unique   // pagamento do cliente que gerou a comissão (idempotência)
+  band         String?
+  tierIndex    Int?
+  baseCents    Int?
+  amountCents  Int            @default(0)
+  releaseAt    DateTime?
+  cancelReason String?
+  @@index([status, releaseAt])
+  @@index([affiliateId])
+}
+
 enum CommissionStatus {
+  HELD             
   WAITING_INVOICE
   INVOICE_SUBMITTED
   APPROVED
   PAID
   REJECTED
+  CANCELLED         
+  REVERSED  
 }
 
 model CommissionTier {
@@ -52,6 +72,11 @@ model CommissionTier {
   maxDeals       Int?
   commissionRate Float
   affiliates     Affiliate[]
+}
+
+enum CommissionKind {
+  DEPOSIT
+  BALANCE
 }
 
 model Affiliate {
@@ -117,6 +142,16 @@ model Lead {
   activities     LeadActivity[]
 }
 
+enum LeadStatus {
+  LEAD_REGISTERED
+  POOL                      
+  COMMERCIAL_CONTACT
+  WAITING_INTERNAL_REVIEW
+  PROPOSAL_SENT
+  DEAL_CLOSED
+  DISCARDED
+}
+
 model LeadActivity {
   id           String         @id @default(uuid())
   leadId       String
@@ -162,25 +197,14 @@ model Deal {
   totalCents      Int?
   closedAt        DateTime @default(now())
 
-  commission      Commission?
+  commissions       Commission[]
 
   paidAt          DateTime?
-}
-
-model Commission {
-  id              String           @id @default(uuid())
-  appliedRate     Float
-  amount          Float
-  status          CommissionStatus @default(WAITING_INVOICE)
-  invoiceUrl      String?
-  invoiceUploaded DateTime?
-  paidAt          DateTime?
-
-  dealId          String           @unique
-  deal            Deal             @relation(fields: [dealId], references: [id])
-  
-  affiliateId     String
-  affiliate       Affiliate        @relation(fields: [affiliateId], references: [id])
+  depositPaidAt     DateTime?
+  balancePaymentId  String?
+  balancePaymentUrl String?
+  balancePaidAt     DateTime?
+  @@index([affiliateId, depositPaidAt])
 }
 
 model WebhookEvent {
