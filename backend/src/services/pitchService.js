@@ -1,5 +1,10 @@
 import OpenAI from "openai";
-import { tripBreaker, isQuotaError } from "./aiGuard.js";
+import {
+  tripBreaker,
+  isQuotaError,
+  providerReady,
+  pauseProvider,
+} from "./aiGuard.js";
 import { getSuggestedPackageByCnae } from "../config/serviceCatalog.js";
 
 // Cliente criado sob demanda: evita erro no import caso o .env ainda não
@@ -203,59 +208,207 @@ export const buildFallbackPitch = (companyData) => {
   };
 };
 
-export const generateSmartPitch = async (companyData) => {
-  const mappedInfo = resolvePackage(companyData.cnaeCode);
-  const cleanCompanyName = cleanName(companyData);
-  let response = null; // se chegou a existir, a OpenAI já cobrou os tokens
+// ---------------------------------------------------------------------------
+// Provedores de IA
+// Ordem: OpenAI (principal) -> Gemini (complemento, camada gratuita) -> abordagem padrão.
+// Cada provedor tem a sua própria pausa: se um esgota, o outro continua disponível.
+// ---------------------------------------------------------------------------
+
+// Só dados públicos da empresa (nome sem números, segmento, cidade e sinais).
+// Nada de nome de pessoa, telefone ou e-mail completo: o plano gratuito do Gemini
+// pode usar o conteúdo enviado para melhorar produtos do Google.
+const buildUserPayload = (companyData, mappedInfo) => ({
+  companyName: cleanName(companyData),
+  cnaeDescription: companyData.cnaeDescription,
+  city: companyData.location,
+  suggestedPackage: mappedInfo.package,
+  deliveryTime: mappedInfo.deliveryTime,
+  catalogStrategy: mappedInfo.howToPitch,
+  catalogHook: mappedInfo.pitchHook,
+  signals: buildSignals(companyData),
+});
+
+// Aceita JSON puro ou embrulhado em ```json ... ```
+const parseJsonLoose = (text) =>
+  JSON.parse(
+    String(text ?? "")
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/, ""),
+  );
+
+// ----- OpenAI (pausa global do aiGuard: 60 min sem saldo, 2 min por ritmo) -----
+const openaiReady = () => providerReady("openai");
+
+const callOpenAI = async (payload) => {
+  const response = await getOpenAI().chat.completions.create({
+    model: "gpt-4o-mini",
+    response_format: { type: "json_object" },
+    temperature: 0.5,
+    max_tokens: 900,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: JSON.stringify(payload) },
+    ],
+  });
+
+  console.log("🧮 [AI usage][openai]", response.usage);
 
   try {
-    response = await getOpenAI().chat.completions.create({
-      model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
-      temperature: 0.5,
-      max_tokens: 900,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: JSON.stringify({
-            companyName: cleanCompanyName,
-            cnaeDescription: companyData.cnaeDescription,
-            city: companyData.location,
-            suggestedPackage: mappedInfo.package,
-            deliveryTime: mappedInfo.deliveryTime,
-            catalogStrategy: mappedInfo.howToPitch,
-            catalogHook: mappedInfo.pitchHook,
-            signals: buildSignals(companyData),
-          }),
+    return normalizeAiContent(
+      parseJsonLoose(response.choices[0].message.content),
+    );
+  } catch (err) {
+    err.charged = true; // a resposta chegou, então os tokens já foram cobrados
+    throw err;
+  }
+};
+
+const onOpenAIFailure = (error) => {
+  if (error?.status === 429) tripBreaker(isQuotaError(error) ? 60 : 2);
+};
+
+// ----- Gemini (pausa própria, só neste módulo) -----
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+// Troque pelo modelo gratuito que preferir no .env (GEMINI_MODEL). Veja scripts/geminiCheck.js
+const geminiModel = () => process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+
+// A pausa mora no aiGuard, para o botão da tela saber se algum provedor está disponível
+const pauseGemini = (minutes) => pauseProvider("gemini", minutes);
+const geminiReady = () => providerReady("gemini");
+
+const callGemini = async (payload) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const res = await fetch(`${GEMINI_BASE}/${geminiModel()}:generateContent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": process.env.GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [
+          { role: "user", parts: [{ text: JSON.stringify(payload) }] },
+        ],
+        generationConfig: {
+          // sem "temperature": o Gemini 3 recomenda manter o valor padrão
+          maxOutputTokens: 4096, // folga: os modelos do Gemini 3 "pensam" antes de responder
+          // Opcional no .env: GEMINI_THINKING_LEVEL=minimal|low|medium|high (menos = mais rápido)
+          ...(process.env.GEMINI_THINKING_LEVEL
+            ? {
+                thinkingConfig: {
+                  thinkingLevel: process.env.GEMINI_THINKING_LEVEL,
+                },
+              }
+            : {}),
+          responseMimeType: "application/json",
         },
-      ],
+      }),
+      signal: controller.signal,
     });
 
-    console.log("🧮 [AI usage]", response.usage);
+    const data = await res.json().catch(() => null);
 
-    const aiContent = normalizeAiContent(
-      JSON.parse(response.choices[0].message.content),
-    );
+    if (!res.ok) {
+      const err = new Error(
+        data?.error?.message || `Gemini HTTP ${res.status}`,
+      );
+      err.status = res.status;
+      err.body = data;
+      throw err;
+    }
 
-    return {
-      suggestedPackage: mappedInfo.package,
-      packageCode: mappedInfo.packageCode,
-      plan: mappedInfo.plan,
-      deliveryTime: mappedInfo.deliveryTime,
-      ...aiContent,
-      source: "ai",
-    };
-  } catch (error) {
-    console.error("⚠️ [OpenAI Pitch Warning] Usando fallback:", error.message);
+    console.log("🧮 [AI usage][gemini]", data?.usageMetadata);
 
-    // 429: pausa as chamadas (60 min se acabou o saldo, 2 min se foi limite de ritmo)
-    if (error?.status === 429) tripBreaker(isQuotaError(error) ? 60 : 2);
+    const candidate = data?.candidates?.[0];
+    const text = (candidate?.content?.parts || [])
+      .map((p) => p.text || "")
+      .join("");
 
-    return {
-      ...buildFallbackPitch(companyData),
-      source: "fallback",
-      charged: response !== null,
-    };
+    try {
+      if (!text) {
+        const why =
+          candidate?.finishReason ||
+          data?.promptFeedback?.blockReason ||
+          "desconhecido";
+        throw new Error(`Gemini sem conteúdo (motivo: ${why})`);
+      }
+      return normalizeAiContent(parseJsonLoose(text));
+    } catch (err) {
+      err.charged = true; // na camada paga isso seria cobrado; na gratuita só consome a cota
+      throw err;
+    }
+  } finally {
+    clearTimeout(timer);
   }
+};
+
+const onGeminiFailure = (error) => {
+  const body = JSON.stringify(error?.body || {});
+
+  if (error?.status === 429) {
+    // cota diária esgotada: pausa longa; limite por minuto: pausa curta
+    pauseGemini(/PerDay/i.test(body) ? 60 : 2);
+  } else if ([400, 401, 403, 404].includes(error?.status)) {
+    // chave inválida, modelo inexistente etc.: insistir não adianta
+    pauseGemini(60);
+    console.error(
+      `🚫 [Gemini] HTTP ${error.status}. Confira GEMINI_API_KEY e GEMINI_MODEL (atual: ${geminiModel()}).`,
+    );
+  } else if (error?.status >= 500 || error?.name === "AbortError") {
+    pauseGemini(1);
+  }
+};
+
+// Usado pelo pitchGateway: existe algum provedor disponível agora?
+export const aiProvidersAvailable = () => openaiReady() || geminiReady();
+
+const PROVIDERS = [
+  {
+    name: "openai",
+    ready: openaiReady,
+    run: callOpenAI,
+    onFail: onOpenAIFailure,
+  },
+  {
+    name: "gemini",
+    ready: geminiReady,
+    run: callGemini,
+    onFail: onGeminiFailure,
+  },
+];
+
+export const generateSmartPitch = async (companyData) => {
+  const mappedInfo = resolvePackage(companyData.cnaeCode);
+  const payload = buildUserPayload(companyData, mappedInfo);
+  let charged = false; // alguma resposta chegou a ser cobrada/consumir cota?
+
+  for (const provider of PROVIDERS) {
+    if (!provider.ready()) continue;
+
+    try {
+      const aiContent = await provider.run(payload);
+      return {
+        suggestedPackage: mappedInfo.package,
+        packageCode: mappedInfo.packageCode,
+        plan: mappedInfo.plan,
+        deliveryTime: mappedInfo.deliveryTime,
+        ...aiContent,
+        source: "ai",
+        provider: provider.name,
+      };
+    } catch (error) {
+      console.error(
+        `⚠️ [${provider.name} Pitch Warning] Tentando o próximo:`,
+        error.message,
+      );
+      if (error?.charged) charged = true;
+      provider.onFail(error);
+    }
+  }
+
+  return { ...buildFallbackPitch(companyData), source: "fallback", charged };
 };

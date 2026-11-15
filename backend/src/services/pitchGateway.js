@@ -1,6 +1,5 @@
 import {
   aiEnabled,
-  breakerOpen,
   getCachedPitch,
   saveCachedPitch,
   reserveAiCall,
@@ -9,6 +8,7 @@ import {
   generateSmartPitch,
   buildFallbackPitch,
   resolvePackage,
+  aiProvidersAvailable,
 } from "./pitchService.js";
 
 const fromCache = (cached, companyData) => ({
@@ -41,10 +41,14 @@ export const getPitchGuarded = async (companyData, affiliateId) => {
     if (cached) return fromCache(cached, companyData);
 
     if (!aiEnabled()) {
-      return fallback("As sugestões por IA estão desligadas no momento. Exibindo a abordagem padrão.");
+      return fallback(
+        "As sugestões por IA estão desligadas no momento. Exibindo a abordagem padrão.",
+      );
     }
-    if (breakerOpen()) {
-      return fallback("A IA está temporariamente indisponível. Exibindo a abordagem padrão.");
+    if (!aiProvidersAvailable()) {
+      return fallback(
+        "A IA está temporariamente indisponível. Exibindo a abordagem padrão.",
+      );
     }
 
     const slot = await reserveAiCall(affiliateId);
@@ -61,7 +65,11 @@ export const getPitchGuarded = async (companyData, affiliateId) => {
     if (result.source !== "ai") {
       const { charged, ...rest } = result;
       if (!charged) await slot.release(); // falhou antes de gastar: devolve a cota
-      return { ...rest, notice: "Não foi possível gerar a versão da IA agora. Exibindo a abordagem padrão." };
+      return {
+        ...rest,
+        notice:
+          "Não foi possível gerar a versão da IA agora. Exibindo a abordagem padrão.",
+      };
     }
 
     const { source, notice, ...content } = result;
@@ -69,6 +77,8 @@ export const getPitchGuarded = async (companyData, affiliateId) => {
     return { ...content, source: "ai" };
   } catch (err) {
     console.error("❌ [pitchGateway]:", err);
-    return fallback("Não foi possível gerar a sugestão agora. Exibindo a abordagem padrão.");
+    return fallback(
+      "Não foi possível gerar a sugestão agora. Exibindo a abordagem padrão.",
+    );
   }
 };

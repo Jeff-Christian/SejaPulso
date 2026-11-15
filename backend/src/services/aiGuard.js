@@ -12,22 +12,45 @@ const intEnv = (name, fallback) => {
 // Interruptor geral: AI_ENABLED=false desliga qualquer chamada paga
 export const aiEnabled = () => process.env.AI_ENABLED !== "false";
 
-// ---------- Disjuntor ----------
-let breakerUntil = 0;
-export const breakerOpen = () => Date.now() < breakerUntil;
-export const tripBreaker = (minutes) => {
-  breakerUntil = Date.now() + minutes * 60 * 1000;
-  console.error(`🛑 [AI Guard] OpenAI pausada por ${minutes} min.`);
+// ---------- Disjuntor (uma pausa independente por provedor) ----------
+const PROVIDER_LABEL = { openai: "OpenAI", gemini: "Gemini" };
+const pausedUntil = { openai: 0, gemini: 0 };
+
+export const providerPaused = (name) => Date.now() < (pausedUntil[name] || 0);
+
+export const pauseProvider = (name, minutes) => {
+  pausedUntil[name] = Date.now() + minutes * 60 * 1000;
+  console.error(
+    `🛑 [AI Guard] ${PROVIDER_LABEL[name] || name} pausado por ${minutes} min.`,
+  );
 };
+
+// Tem chave no .env e não está pausado?
+export const providerReady = (name) => {
+  const hasKey =
+    name === "openai"
+      ? Boolean(process.env.OPENAI_API_KEY)
+      : Boolean(process.env.GEMINI_API_KEY);
+  return hasKey && !providerPaused(name);
+};
+
+export const anyProviderAvailable = () =>
+  providerReady("openai") || providerReady("gemini");
+
+// Atalhos antigos (a OpenAI era o único provedor): mantidos por compatibilidade
+export const breakerOpen = () => providerPaused("openai");
+export const tripBreaker = (minutes) => pauseProvider("openai", minutes);
 export const isQuotaError = (err) =>
   err?.status === 429 &&
-  (err?.code === "insufficient_quota" || /credit|quota|billing/i.test(String(err?.message)));
+  (err?.code === "insufficient_quota" ||
+    /credit|quota|billing/i.test(String(err?.message)));
 
 // ---------- Cache por CNPJ ----------
 export const getCachedPitch = async (cnpj) => {
   const row = await prisma.pitchCache.findUnique({ where: { cnpj } });
   if (!row || row.promptVersion !== PROMPT_VERSION) return null;
-  const fresh = Date.now() - row.createdAt.getTime() < CACHE_DAYS * 24 * 60 * 60 * 1000;
+  const fresh =
+    Date.now() - row.createdAt.getTime() < CACHE_DAYS * 24 * 60 * 60 * 1000;
   return fresh ? row.content : null;
 };
 
@@ -40,7 +63,9 @@ export const saveCachedPitch = (cnpj, content) =>
 
 // ---------- Cota diária (atômica) ----------
 const today = () =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+  new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(
+    new Date(),
+  );
 
 const reserve = async (day, scope, limit) => {
   try {
@@ -70,7 +95,9 @@ export const reserveAiCall = async (affiliateId) => {
   if (!(await reserve(day, "GLOBAL", intEnv("AI_DAILY_LIMIT_GLOBAL", 300)))) {
     return { ok: false, reason: "GLOBAL_LIMIT" };
   }
-  if (!(await reserve(day, affiliateId, intEnv("AI_DAILY_LIMIT_PER_USER", 30)))) {
+  if (
+    !(await reserve(day, affiliateId, intEnv("AI_DAILY_LIMIT_PER_USER", 30)))
+  ) {
     await release(day, "GLOBAL");
     return { ok: false, reason: "USER_LIMIT" };
   }
@@ -87,18 +114,30 @@ export const reserveAiCall = async (affiliateId) => {
 export const getAiQuota = async (affiliateId) => {
   const day = today();
   const [mine, global] = await Promise.all([
-    prisma.aiUsage.findUnique({ where: { day_scope: { day, scope: affiliateId } } }),
-    prisma.aiUsage.findUnique({ where: { day_scope: { day, scope: "GLOBAL" } } }),
+    prisma.aiUsage.findUnique({
+      where: { day_scope: { day, scope: affiliateId } },
+    }),
+    prisma.aiUsage.findUnique({
+      where: { day_scope: { day, scope: "GLOBAL" } },
+    }),
   ]);
 
   const limit = intEnv("AI_DAILY_LIMIT_PER_USER", 30);
   const used = mine?.count ?? 0;
-  const globalLeft = Math.max(0, intEnv("AI_DAILY_LIMIT_GLOBAL", 300) - (global?.count ?? 0));
+  const globalLeft = Math.max(
+    0,
+    intEnv("AI_DAILY_LIMIT_GLOBAL", 300) - (global?.count ?? 0),
+  );
 
   return {
     limit,
     used,
     remaining: Math.max(0, Math.min(limit - used, globalLeft)),
-    available: aiEnabled() && !breakerOpen(), // false com o interruptor desligado ou o disjuntor aberto
+    // false com o interruptor desligado ou quando nenhum provedor está utilizável agora
+    available: aiEnabled() && anyProviderAvailable(),
+    providers: {
+      openai: providerReady("openai"),
+      gemini: providerReady("gemini"),
+    },
   };
 };
