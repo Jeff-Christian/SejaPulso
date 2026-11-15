@@ -75,6 +75,10 @@ model Affiliate {
   leads          Lead[]
   deals          Deal[]
   commissions    Commission[]
+
+  pricingViewedAt       DateTime?
+  materialsViewedAt     DateTime?
+  onboardingDismissedAt DateTime?
 }
 
 model Lead {

@@ -14,6 +14,7 @@ import { Sidebar } from "../components/Sidebar";
 import { HeaderAffiliate } from "../components/HeaderAffiliate";
 import { LeadCard } from "../components/LeadCard";
 import { MyLeadsTab } from "../components/MyLeadsTab";
+import { FirstStepsChecklist } from "../components/FirstStepsChecklist";
 import { PoolQueue } from "../components/PoolQueue";
 import { ServiceCatalogTab } from "../components/ServiceCatalogTab";
 import { getPackageByCode } from "../config/serviceCatalog";
@@ -114,6 +115,9 @@ export const DashboardPage = () => {
           {/* ================= TAB 1: VISÃO GERAL & KPIS ================= */}
           {activeTab === "overview" && (
             <div className="space-y-8">
+              {/* Primeiros passos do consultor (some quando ele oculta) */}
+              <FirstStepsChecklist onNavigate={setActiveTab} />
+
               {/* Card de Progresso de Tier */}
               <div className="bg-[#111D3A] border border-[#1E2D50] rounded-2xl p-6 md:p-8 space-y-6 shadow-xl">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">

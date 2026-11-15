@@ -10,20 +10,29 @@ import {
 } from "../controllers/leadController.js";
 
 import {
-  getPool, 
-  getPoolFacets, 
-  nextLead, 
-  claimFromPool, 
+  getPool,
+  getPoolFacets,
+  nextLead,
+  claimFromPool,
   tabulateLead,
 } from "../controllers/leadPoolController.js";
 
-import { 
-  generatePitch, 
-  getLeadPitch, 
-  getQuota 
+import {
+  generatePitch,
+  getLeadPitch,
+  getQuota,
 } from "../controllers/pitchController.js";
 
-import { authenticateToken, requireAdmin } from "../middlewares/authMiddleware.js";
+import {
+  getOnboarding,
+  markOnboardingSeen,
+  dismissOnboarding,
+} from "../controllers/OnboardingController.js";
+
+import {
+  authenticateToken,
+  requireAdmin,
+} from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
@@ -36,7 +45,9 @@ const consultLimiter = rateLimit({
   keyGenerator: (req) => req.user.id,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Muitas consultas seguidas. Aguarde um minuto e tente de novo." },
+  message: {
+    error: "Muitas consultas seguidas. Aguarde um minuto e tente de novo.",
+  },
 });
 
 const poolLimiter = rateLimit({
@@ -58,6 +69,12 @@ const pitchLimiter = rateLimit({
   message: { error: "Muitas gerações seguidas. Aguarde um minuto." },
 });
 
+// Primeiros passos do consultor (onboarding)
+router.get("/onboarding", getOnboarding);
+router.post("/onboarding/seen", markOnboardingSeen);
+router.post("/onboarding/dismiss", dismissOnboarding);
+
+// Rotas de leads e negócios
 router.get("/my-leads", getMyLeads);
 router.get("/consult/:cnpj", consultLimiter, consultCnpjAndCheckOwnership);
 router.get("/", requireAdmin, listLeads);
